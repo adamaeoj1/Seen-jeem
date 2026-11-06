@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-cairo: "Cairo", "Readex Pro", system-ui, sans-serif;
+  --font-readex: "Readex Pro", "Cairo", system-ui, sans-serif;
+}
+
+html,
+body {
+  direction: rtl;
+  font-family: var(--font-cairo);
+  background-color: #FFF9E6;
+  color: #000000;
+  overflow-x: hidden;
+}
+
+@layer utilities {
+  .border-3 {
+    border-width: 3px;
+  }
+  .brutal-btn {
+    @apply border-2 border-black shadow-brutal transition-all duration-100 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none;
+  }
+  .brutal-card {
+    @apply border-4 border-black shadow-brutal rounded-2xl;
+  }
+}
+
+/* Custom Neo-Brutalist Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FFF9E6;
+  border-left: 2px solid #000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #F4D03F;
+  border: 2px solid #000;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #E65C2E;
+}
