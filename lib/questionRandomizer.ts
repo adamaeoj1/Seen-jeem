@@ -27,6 +27,16 @@ import {
   MOROCCAN_SEEN_JEEM_CATEGORIES,
   MOROCCAN_SPEED_TRIVIA_ROUNDS,
 } from "@/data/moroccanSeedQuestions";
+import {
+  ENGLISH_CLOSEST_NUMBER_ROUNDS,
+  ENGLISH_DRAWING_CHALLENGE_ROUNDS,
+  ENGLISH_MAP_PIN_ROUNDS,
+  ENGLISH_PRICE_GUESS_ROUNDS,
+  ENGLISH_SCENE_DESCRIPTION_ROUNDS,
+  ENGLISH_SEEN_JEEM_CATEGORIES,
+  ENGLISH_SPEED_TRIVIA_ROUNDS,
+  ENGLISH_WHATS_IN_FRAME_ROUNDS,
+} from "@/data/englishSeedQuestions";
 import { EditionRegion } from "@/lib/editionManager";
 
 export const PLAYED_QUESTION_IDS_KEY = "qadha_played_question_ids_v1";
@@ -42,6 +52,7 @@ export interface QuestionOverridePatch {
   hint?: string;
   funFact?: string;
   points?: 200 | 400 | 600;
+  imageUrl?: string;
 }
 
 export interface CustomCategoryRecord extends SeenJeemCategory {
@@ -449,6 +460,7 @@ export function addQuestionToCategory(
     rejectedTraps: newQuestion.rejectedTraps || [],
     trapNote: newQuestion.trapNote,
     funFact: newQuestion.funFact || "سؤال مخصص من استوديو قَدْهَا؟",
+    imageUrl: newQuestion.imageUrl,
   };
 
   // Check if it belongs to a custom category
@@ -649,6 +661,7 @@ export function applyQuestionBankOverrides(
           hint: patch.hint !== undefined ? patch.hint : q.hint,
           funFact: patch.funFact ?? q.funFact,
           points: patch.points ?? q.points,
+          imageUrl: patch.imageUrl !== undefined ? patch.imageUrl : q.imageUrl,
         });
       }
     }
@@ -685,6 +698,7 @@ export function applyQuestionBankOverrides(
             acceptedSynonyms: mergedAccepted,
             hint: patch.hint !== undefined ? patch.hint : q.hint,
             points: patch.points ?? q.points,
+            imageUrl: patch.imageUrl !== undefined ? patch.imageUrl : q.imageUrl,
           };
         }),
     }));
@@ -704,7 +718,9 @@ export function getMergedSpeedTriviaRounds(
 ): SpeedTriviaRound[] {
   const bank = loadCustomQuestionBank();
   const base =
-    region === "MA"
+    region === "EN"
+      ? ENGLISH_SPEED_TRIVIA_ROUNDS
+      : region === "MA"
       ? [...MOROCCAN_SPEED_TRIVIA_ROUNDS, ...SPEED_TRIVIA_ROUNDS]
       : SPEED_TRIVIA_ROUNDS;
   const seen = new Set<string>();
@@ -723,7 +739,11 @@ export function getMergedPriceGuessRounds(
 ): PriceGuessRound[] {
   const bank = loadCustomQuestionBank();
   const base =
-    region === "MA" ? MOROCCAN_PRICE_GUESS_ROUNDS : PRICE_GUESS_ROUNDS;
+    region === "EN"
+      ? ENGLISH_PRICE_GUESS_ROUNDS
+      : region === "MA"
+      ? MOROCCAN_PRICE_GUESS_ROUNDS
+      : PRICE_GUESS_ROUNDS;
   const seen = new Set<string>();
   const combined: PriceGuessRound[] = [];
   for (const r of [...bank.customPriceGuess, ...base]) {
@@ -740,7 +760,9 @@ export function getMergedClosestNumberRounds(
 ): ClosestNumberRound[] {
   const bank = loadCustomQuestionBank();
   const base =
-    region === "MA"
+    region === "EN"
+      ? ENGLISH_CLOSEST_NUMBER_ROUNDS
+      : region === "MA"
       ? [...MOROCCAN_CLOSEST_NUMBER_ROUNDS, ...CLOSEST_NUMBER_ROUNDS]
       : CLOSEST_NUMBER_ROUNDS;
   const seen = new Set<string>();
@@ -759,7 +781,9 @@ export function getMergedDrawingRounds(
 ): DrawingChallengeRound[] {
   const bank = loadCustomQuestionBank();
   const base =
-    region === "MA"
+    region === "EN"
+      ? ENGLISH_DRAWING_CHALLENGE_ROUNDS
+      : region === "MA"
       ? [...MOROCCAN_DRAWING_CHALLENGE_ROUNDS, ...DRAWING_CHALLENGE_ROUNDS]
       : DRAWING_CHALLENGE_ROUNDS;
   const seen = new Set<string>();
@@ -777,16 +801,24 @@ export function getMergedQuickReflexRounds(): QuickReflexRound[] {
   return QUICK_REFLEX_ROUNDS;
 }
 
-export function getMergedWhatsInFrameRounds(): WhatsInFrameRound[] {
-  return WHATS_IN_FRAME_ROUNDS;
+export function getMergedWhatsInFrameRounds(
+  region: EditionRegion = "MA"
+): WhatsInFrameRound[] {
+  return region === "EN" ? ENGLISH_WHATS_IN_FRAME_ROUNDS : WHATS_IN_FRAME_ROUNDS;
 }
 
-export function getMergedMapPinRounds(): MapPinRound[] {
-  return MAP_PIN_ROUNDS;
+export function getMergedMapPinRounds(
+  region: EditionRegion = "MA"
+): MapPinRound[] {
+  return region === "EN" ? ENGLISH_MAP_PIN_ROUNDS : MAP_PIN_ROUNDS;
 }
 
-export function getMergedSceneDescriptionRounds(): SceneDescriptionRound[] {
-  return SCENE_DESCRIPTION_ROUNDS;
+export function getMergedSceneDescriptionRounds(
+  region: EditionRegion = "MA"
+): SceneDescriptionRound[] {
+  return region === "EN"
+    ? ENGLISH_SCENE_DESCRIPTION_ROUNDS
+    : SCENE_DESCRIPTION_ROUNDS;
 }
 
 // ============================================================================
@@ -803,6 +835,10 @@ export function exportQuestionBankJson(): string {
     SEEN_JEEM_CATEGORIES,
     "MENA"
   );
+  const enCategories = applyQuestionBankOverrides(
+    ENGLISH_SEEN_JEEM_CATEGORIES,
+    "EN"
+  );
 
   const payload = {
     version: "2026.11",
@@ -811,6 +847,7 @@ export function exportQuestionBankJson(): string {
     customBankState: bank,
     boardCategoriesMA: maCategories,
     boardCategoriesMENA: menaCategories,
+    boardCategoriesEN: enCategories,
     priceGuessItems: getMergedPriceGuessRounds("MA"),
     speedTrivia: getMergedSpeedTriviaRounds("MA"),
     closeToNumber: getMergedClosestNumberRounds("MA"),

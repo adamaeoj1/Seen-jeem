@@ -1,5 +1,7 @@
 import { SceneTag } from "@/lib/arabicReferee";
 
+export type DescriptionDetailTag = SceneTag;
+
 export interface SeenJeemQuestion {
   id: string;
   categoryId: string;
@@ -7,6 +9,7 @@ export interface SeenJeemQuestion {
   slotIndex: number; // 0..5 (0,1 = 200pt; 2,3 = 400pt; 4,5 = 600pt)
   question: string;
   hint?: string;
+  imageUrl?: string;
   displayAnswer: string;
   acceptedAnswers: string[];
   acceptedSynonyms?: string[];
@@ -22,6 +25,7 @@ export interface SeenJeemCategory {
   icon: string;
   color: string;
   thumbnailUrl?: string;
+  edition?: "MA" | "MENA" | "EN";
   questions: SeenJeemQuestion[];
 }
 
@@ -83,6 +87,8 @@ export type ProductIllustrationType =
   | "ps5_slim"
   | "atay_set"
   | "iphone_16_pro"
+  | "iphone_17_pro"
+  | "nintendo_switch_2"
   | "airpods_pro_2"
   | "dacia_logan";
 
@@ -104,13 +110,19 @@ export interface WhatsInFrameRound {
   id: string;
   prompt: string;
   clue: string;
+  imageUrl?: string;
   sceneArtworkId:
     | "constantinople"
     | "mount_fuji"
     | "petra"
     | "titanic"
     | "taj_mahal"
-    | "pyramids";
+    | "pyramids"
+    | "chefchaouen"
+    | "hassan_ii"
+    | "eiffel_tower"
+    | "colosseum"
+    | "burj_khalifa";
   displayAnswer: string;
   acceptedAnswers: string[];
   acceptedSynonyms?: string[];
@@ -150,12 +162,17 @@ export interface SceneDescriptionRound {
   id: string;
   title: string;
   prompt: string;
+  imageUrl?: string;
   sceneArtworkId:
     | "moon_coffee"
     | "desert_camp"
     | "pizza_chef"
     | "deep_sea_treasure"
-    | "cyber_camel";
+    | "cyber_camel"
+    | "moroccan_souk"
+    | "moroccan_living_room"
+    | "gaming_setup"
+    | "street_cafe";
   tags: SceneTag[];
   modelDescription: string;
 }
@@ -290,8 +307,9 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
         categoryId: "history",
         points: 400,
         slotIndex: 2,
-        question: "ما اسم المدينة الأثرية الوردية المنحوتة في الصخر جنوب الأردن والتي كانت عاصمة للأنباط؟",
-        hint: "إحدى عجائب الدنيا السبع الجديدة",
+        question: "📸 ما اسم هذا المعلم التاريخي والمدينة الوردية المنحوتة في الصخر جنوب الأردن والتي كانت عاصمة للأنباط؟",
+        hint: "إحدى عجائب الدنيا السبع الجديدة (انظر الصورة)",
+        imageUrl: "https://images.unsplash.com/photo-1579606032821-4e6161c81bd3?auto=format&fit=crop&w=1000&q=85",
         displayAnswer: "البتراء (سلع)",
         acceptedAnswers: ["البتراء", "بتراء", "البترا", "سلع", "الرقيم"],
         rejectedTraps: ["جرش", "مدائن صالح", "تدمر"],
@@ -359,8 +377,9 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
         categoryId: "cities",
         points: 200,
         slotIndex: 1,
-        question: "ما هي المدينة المغربية التي تُلقب بـ «المدينة الحمراء» بسبب لون أسوارها ومبانيها؟",
-        hint: "تشتهر بساحة جامع الفنا",
+        question: "📸 في أي مدينة مغربية التُقطت هذه الصورة لصومعة الكتبية الشهيرة وتُلقب بـ «المدينة الحمراء»؟",
+        hint: "تشتهر بساحة جامع الفنا وأسوارها الحمراء",
+        imageUrl: "https://images.unsplash.com/photo-1597212618440-806262de4f6b?auto=format&fit=crop&w=1000&q=85",
         displayAnswer: "مراكش",
         acceptedAnswers: ["مراكش", "مدينة مراكش"],
         rejectedTraps: ["الدار البيضاء", "كازابلانكا", "فاس", "الرباط", "طنجة"],
@@ -1120,55 +1139,99 @@ export const PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
 export const WHATS_IN_FRAME_ROUNDS: WhatsInFrameRound[] = [
   {
     id: "wif-1",
-    prompt: "ما هو الاسم التاريخي القديم لهذه المدينة المحصنة بالأسوار قبل فتحها عام ١٤٥٣م؟",
-    clue: "الاسم القديم وليس إسطنبول!",
-    sceneArtworkId: "constantinople",
-    displayAnswer: "القسطنطينية (بيزنطة)",
-    acceptedAnswers: ["القسطنطينية", "قسطنطينيه", "بيزنطة", "بيزنطه"],
-    acceptedSynonyms: ["القسطنطينية", "قسطنطينيه", "بيزنطة", "بيزنطه"],
-    rejectedTraps: ["قسطنطينة", "قسطنطينه", "إسطنبول", "أنقرة", "روما"],
-    trapNote: "تنبيه: قسطنطينة هي المدينة الجزائرية العريقة، أما عاصمة البيزنطيين فهي القسطنطينية (إسطنبول حالياً)!",
-    funFact: "أسوار القسطنطينية الثلاثية صمدت لأكثر من ألف عام حتى استخدام المدافع العملاقة عام ١٤٥٣م.",
+    prompt: "ما اسم هذا المعلم الرخامي الأبيض المهيب في مدينة أغرا بالهند وأحد عجائب الدنيا؟",
+    clue: "بناه الإمبراطور شاه جهان تخليداً لزوجته ممتاز محل",
+    imageUrl: "https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "taj_mahal",
+    displayAnswer: "تاج محل (Taj Mahal)",
+    acceptedAnswers: ["تاج محل", "التاج محل", "قصر تاج محل", "Taj Mahal"],
+    acceptedSynonyms: ["تاج محل", "التاج محل", "قصر تاج محل", "Taj Mahal"],
+    rejectedTraps: ["قصر الحمراء", "المسجد الأزرق", "قطب منار"],
+    funFact: "استغرق بناء تاج محل أكثر من ٢٠ عاماً بمشاركة ٢٠ ألف حرفي ومعماري من مختلف أصقاع العالم الإسلامي.",
   },
   {
     id: "wif-2",
-    prompt: "ما اسم هذا الجبل البركاني الشهير المغطى بالثلوج والذي يُعد رمزاً لليابان؟",
-    clue: "تتحلق حوله أشجار الساكورا الوردية",
-    sceneArtworkId: "mount_fuji",
-    displayAnswer: "جبل فوجي",
-    acceptedAnswers: ["جبل فوجي", "فوجي", "فوجي ياما", "بركان فوجي"],
-    rejectedTraps: ["إيفرست", "كيليمنجارو", "الألب"],
-    funFact: "يبلغ ارتفاع جبل فوجي ٣٧٧٦ متراً وهو أعلى قمة في اليابان وأيقونة ثقافية عالمية.",
+    prompt: "ما اسم هذه المدينة المغربية التاريخية الساحرة الملقبة عالمياً بـ «الجوهرة الزرقاء»؟",
+    clue: "تقع في جبال الريف شمال المملكة وتتميز بجدرانها الزرقاء وأبوابها الأندلسية",
+    imageUrl: "https://images.unsplash.com/photo-1553899017-90c40dd32533?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "chefchaouen",
+    displayAnswer: "شفشاون (الشاون)",
+    acceptedAnswers: ["شفشاون", "الشاون", "شاون", "مدينة شفشاون", "Chefchaouen"],
+    acceptedSynonyms: ["شفشاون", "الشاون", "شاون", "مدينة شفشاون", "Chefchaouen"],
+    rejectedTraps: ["تطوان", "الحسيمة", "طنجة", "أصيلة"],
+    funFact: "تأسست شفشاون عام ١٤٧١م كحصن عسكري وأصبحت جدرانها الزرقاء ملاذاً سياحياً عالمياً.",
   },
   {
     id: "wif-3",
-    prompt: "ما اسم هذه المدينة الوردية المنحوتة في الصخر (الخزنة)؟",
-    clue: "إحدى عجائب الدنيا السبع الجديدة في الأردن",
-    sceneArtworkId: "petra",
-    displayAnswer: "البتراء",
-    acceptedAnswers: ["البتراء", "بتراء", "البترا", "الخزنة", "خزنة البتراء"],
-    rejectedTraps: ["مدائن صالح", "الأقصر", "تدمر"],
-    funFact: "واجهة الخزنة الشهيرة في البتراء يبلغ ارتفاعها ٤٠ متراً ونُحتت بالكامل في جبل صخري وردي.",
+    prompt: "ما اسم هذا الصرح المعماري الديني المطل على المحيط الأطلسي بصومعته الشاهقة (٢١٠ أمتار)؟",
+    clue: "يقع في العاصمة الاقتصادية الدار البيضاء ويتميز بسقفه المتحرك",
+    imageUrl: "https://images.unsplash.com/photo-1577147443647-81856d5151af?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "hassan_ii",
+    displayAnswer: "مسجد الحسن الثاني (الدار البيضاء)",
+    acceptedAnswers: ["مسجد الحسن الثاني", "جامع الحسن الثاني", "الحسن الثاني", "مسجد كازا"],
+    acceptedSynonyms: ["مسجد الحسن الثاني", "جامع الحسن الثاني", "الحسن الثاني"],
+    rejectedTraps: ["صومعة حسان", "صومعة الكتبية", "جامع القرويين"],
+    funFact: "ترتفع مئذنة مسجد الحسن الثاني ٢١٠ أمتار وتوجه شعاع ليزر ليلي نحو مكة المكرمة بمدى ٣٠ كيلومتراً.",
   },
   {
     id: "wif-4",
-    prompt: "ما اسم هذا المعلم الرخامي الأبيض الشهير في مدينة أغرا بالهند؟",
-    clue: "بناه الإمبراطور شاه جهان تخليداً لزوجته ممتاز محل",
-    sceneArtworkId: "taj_mahal",
-    displayAnswer: "تاج محل",
-    acceptedAnswers: ["تاج محل", "التاج محل", "قصر تاج محل"],
-    rejectedTraps: ["قصر الحمراء", "المسجد الأزرق"],
-    funFact: "استغرق بناء تاج محل أكثر من ٢٠ عاماً بمشاركة ٢٠ ألف حرفي ومعماري.",
+    prompt: "ما اسم هذه المعالم الفرعونية الأسطورية الثلاثة في مصر والتي صمدت لآلاف السنين؟",
+    clue: "خوفو وخفرع ومنقرع على هضبة الجيزة",
+    imageUrl: "https://images.unsplash.com/photo-1503177119275-0aa32b3a9368?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "pyramids",
+    displayAnswer: "أهرامات الجيزة (مصر)",
+    acceptedAnswers: ["الأهرامات", "اهرامات الجيزة", "أهرامات الجيزة", "أهرام الجيزة", "خوفو"],
+    acceptedSynonyms: ["الأهرامات", "اهرامات الجيزة", "أهرامات الجيزة"],
+    rejectedTraps: ["أبو الهول", "سقارة", "الأقصر"],
+    funFact: "يعد الهرم الأكبر بالجيزة العجيبة الوحيدة المتبقية من عجائب الدنيا السبع القديمة.",
   },
   {
     id: "wif-5",
-    prompt: "ما اسم السفينة العملاقة التي يصورها هذا المشهد التاريخي ليلة غرقها؟",
-    clue: "٤ مداخن عملاقة وجبل جليدي في ليل الأطلسي",
-    sceneArtworkId: "titanic",
-    displayAnswer: "تايتانيك",
-    acceptedAnswers: ["تايتانيك", "تيتانيك", "التايتانيك", "سفينة تايتانيك"],
-    rejectedTraps: ["لوسيتانيا", "كوين ماري"],
-    funFact: "المدخنة الرابعة في سفينة تايتانيك كانت للتهوية وإعطاء السفينة مظهراً أكثر هيبة وفخامة!",
+    prompt: "ما اسم هذا البرج الحديدي الأيقوني في العاصمة الفرنسية باريس المكتمل عام ١٨٨٩م؟",
+    clue: "صممه المهندس غوستاف إيفل ويبلغ ارتفاعه ٣٣٠ متراً",
+    imageUrl: "https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "eiffel_tower",
+    displayAnswer: "برج إيفل (Eiffel Tower)",
+    acceptedAnswers: ["برج إيفل", "برج ايفل", "ايفل", "إيفل", "Eiffel Tower"],
+    acceptedSynonyms: ["برج إيفل", "برج ايفل", "ايفل", "إيفل"],
+    rejectedTraps: ["قوس النصر", "متحف اللوفر", "بيزا المائل"],
+    funFact: "كان من المقرر تفكيك برج إيفل بعد ٢٠ عاماً من تشييده، لكن استخدام قمته لهوائيات اللاسلكي أنقذه من الهدم.",
+  },
+  {
+    id: "wif-6",
+    prompt: "ما اسم هذا المدرج الروماني الأثري العملاق في قلب العاصمة الإيطالية روما؟",
+    clue: "كان مسرحاً لمعارك المجالدين والوحوش الرومانية",
+    imageUrl: "https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "colosseum",
+    displayAnswer: "الكولوسيوم (Colosseum)",
+    acceptedAnswers: ["الكولوسيوم", "كولوسيوم", "مدرج كولوسيوم", "Colosseum"],
+    acceptedSynonyms: ["الكولوسيوم", "كولوسيوم", "مدرج كولوسيوم"],
+    rejectedTraps: ["البانثيون", "برج بيزا", "المنتدى الروماني"],
+    funFact: "كان الكولوسيوم يتسع لأكثر من ٥٠ ألف متفرج وكان يحتوي على نظام رفع يدوي ميكانيكي لنقل الوحوش إلى الساحة.",
+  },
+  {
+    id: "wif-7",
+    prompt: "ما اسم أطول ناطحة سحاب وبرج شيده الإنسان في العالم بارتفاع ٨٢٨ متراً؟",
+    clue: "يقع في إمارة دبي بدولة الإمارات العربية المتحدة",
+    imageUrl: "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "burj_khalifa",
+    displayAnswer: "برج خليفة (دبي)",
+    acceptedAnswers: ["برج خليفة", "برج دبي", "خليفة", "Burj Khalifa"],
+    acceptedSynonyms: ["برج خليفة", "برج دبي", "خليفة"],
+    rejectedTraps: ["برج العرب", "برج ساعة مكة", "برج شنجهاي"],
+    funFact: "يمكن رؤية غروب الشمس مرتين في نفس اليوم من برج خليفة: مرة من الأرض ومرة ثانية من الطوابق العليا!",
+  },
+  {
+    id: "wif-8",
+    prompt: "ما اسم هذه المدينة الأثرية الوردية المنحوتة في الصخر (الخزنة) في الأردن؟",
+    clue: "عاصمة الأنباط وإحدى عجائب الدنيا السبع الجديدة",
+    imageUrl: "https://images.unsplash.com/photo-1579606032821-4e6161c81bd3?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "petra",
+    displayAnswer: "البتراء (الخزنة)",
+    acceptedAnswers: ["البتراء", "بتراء", "البترا", "الخزنة", "خزنة البتراء", "Petra"],
+    acceptedSynonyms: ["البتراء", "بتراء", "البترا", "الخزنة", "خزنة البتراء"],
+    rejectedTraps: ["مدائن صالح", "الأقصر", "تدمر"],
+    funFact: "واجهة الخزنة الشهيرة في البتراء يبلغ ارتفاعها ٤٠ متراً ونُحتت بالكامل في جبل صخري وردي.",
   },
 ];
 
@@ -1370,77 +1433,98 @@ export const MAP_PIN_ROUNDS: MapPinRound[] = [
 export const SCENE_DESCRIPTION_ROUNDS: SceneDescriptionRound[] = [
   {
     id: "sd-1",
-    title: "استراحة القمر",
-    prompt: "صف اللي داخل الصورة بدقة، مو من وين هي! (اذكر أكبر عدد من العناصر الموجودة)",
-    sceneArtworkId: "moon_coffee",
-    modelDescription: "رائد فضاء يجلس على كرسي فوق سطح القمر ويشرب فنجان قهوة ساخن، وبجانبه علم وكوكب الأرض وسفينة فضائية في السماء.",
+    title: "سوق التوابل والفوانيس التقليدي",
+    prompt: "صف كل ما تراه داخل هذه الصورة بدقة! (الألوان، الفوانيس، الأواني، الملابس، والتفاصيل الخلفية — ٩ عناصر)",
+    imageUrl: "https://images.unsplash.com/photo-1539020140153-e479b8c22e70?auto=format&fit=crop&w=1100&q=85",
+    sceneArtworkId: "desert_camp",
+    modelDescription: "ممر سوق تقليدي مزدحم تتدلى من سقفه فوانيس نحاسية وزجاجية ملونة، وعلى الجانبين أطباق خزفية مزخرفة، أكوام من التوابل الملونة، سجاد منسوج، وبائع يرتدي جلابة تقليدية تحت أقواس حجرية.",
     tags: [
-      { id: "t1", label: "رائد فضاء", aliases: ["رائد", "فضائي", "بدلة فضاء", "رجل فضاء"], points: 100 },
-      { id: "t2", label: "كوب قهوة / شاي", aliases: ["قهوة", "كوب", "فنجان", "شاي", "مشروب"], points: 100 },
-      { id: "t3", label: "سطح القمر", aliases: ["القمر", "قمر", "فوهات"], points: 80 },
-      { id: "t4", label: "كوكب الأرض", aliases: ["الأرض", "كوكب", "الكرة الأرضية"], points: 90 },
-      { id: "t5", label: "صاروخ / مركبة", aliases: ["صاروخ", "سفينة فضاء", "مركبة"], points: 90 },
-      { id: "t6", label: "علم مغروس", aliases: ["علم", "راية"], points: 80 },
+      { id: "t1", label: "فوانيس / مصابيح معلقة", aliases: ["فوانيس", "فانوس", "مصابيح", "ثريات", "إضاءة"], points: 80 },
+      { id: "t2", label: "أطباق وطواجن خزفية", aliases: ["أطباق", "صحون", "خزف", "فخار", "طاجين", "طواجن"], points: 80 },
+      { id: "t3", label: "توابل وبهارات ملونة", aliases: ["توابل", "بهارات", "عطارة", "أعشاب"], points: 80 },
+      { id: "t4", label: "زرابي / سجاد منسوج", aliases: ["زربية", "زرابي", "سجاد", "سجادة", "مفروشات"], points: 70 },
+      { id: "t5", label: "أقواس وزقاق حجري", aliases: ["قوس", "أقواس", "زقاق", "سوق", "ممر"], points: 70 },
+      { id: "t6", label: "بائع / متسوقون", aliases: ["بائع", "رجل", "تاجر", "متسوق", "ناس"], points: 60 },
+      { id: "t7", label: "جلابة / لباس تقليدي", aliases: ["جلابة", "لباس", "طربوش", "قفطان"], points: 70 },
+      { id: "t8", label: "نحاسيات وأباريق", aliases: ["نحاس", "براد", "إبريق", "صينية"], points: 70 },
+      { id: "t9", label: "ألوان دافئة (أحمر وأصفر وأزرق)", aliases: ["أحمر", "أصفر", "أزرق", "ملون", "ألوان"], points: 60 },
     ],
   },
   {
     id: "sd-2",
-    title: "كشتة الشتاء في النفود",
-    prompt: "صف اللي داخل الصورة بدقة! ما العناصر الظاهرة في هذه الجلسة البرية؟",
-    sceneArtworkId: "desert_camp",
-    modelDescription: "خيمة بيضاء في الصحراء ليلاً تحت الهلال والنجوم، وأمامها نار مشتعلة ودلة قهوة عربية مع جمل ونخلة وسيارة دفع رباعي.",
+    title: "مطبخ الشيف الإيطالي المزدحم",
+    prompt: "صف تفاصيل هذه الصورة بدقة! ماذا يرتدي الشيف وما المكونات والأدوات الظاهرة حوله؟",
+    imageUrl: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1100&q=85",
+    sceneArtworkId: "pizza_chef",
+    modelDescription: "طباخ يرتدي قبعة ومئزر طبخ أمام فرن حجري مشتعل بالنار، يفرد عجينة البيتزا على طاولة خشبية عليها دقيق، طماطم حمراء، جبن موزاريلا، أوراق ريحان خضراء، وزجاجة زيت زيتون.",
     tags: [
-      { id: "t1", label: "خيمة", aliases: ["خيمة", "بيت شعر", "مخيم"], points: 90 },
-      { id: "t2", label: "نار / حطب", aliases: ["نار", "شبة ضو", "حطب", "تدفئة"], points: 100 },
-      { id: "t3", label: "دلة قهوة", aliases: ["دلة", "قهوة", "ابريق"], points: 100 },
-      { id: "t4", label: "جمل / ناقة", aliases: ["جمل", "ناقة", "بعير", "إبل"], points: 90 },
-      { id: "t5", label: "هلال ونجوم", aliases: ["هلال", "قمر", "نجوم", "ليل"], points: 80 },
-      { id: "t6", label: "كثبان رملية / صحراء", aliases: ["صحراء", "رمال", "نفود", "بر"], points: 80 },
+      { id: "t1", label: "شيف / طباخ بمئزر", aliases: ["شيف", "طباخ", "طاهي", "مئزر"], points: 80 },
+      { id: "t2", label: "عجينة بيتزا ودقيق", aliases: ["بيتزا", "عجينة", "دقيق", "طحين"], points: 80 },
+      { id: "t3", label: "فرن حجري ونار مشتعلة", aliases: ["فرن", "نار", "حطب", "لهب"], points: 80 },
+      { id: "t4", label: "طماطم وصلصة حمراء", aliases: ["طماطم", "بندورة", "صلصة", "صوص"], points: 70 },
+      { id: "t5", label: "جبن موزاريلا", aliases: ["جبن", "جبنة", "موزاريلا"], points: 70 },
+      { id: "t6", label: "أوراق ريحان / خضار", aliases: ["ريحان", "حبق", "أوراق خضراء", "خضار"], points: 70 },
+      { id: "t7", label: "قبعة الشيف البيضاء", aliases: ["قبعة", "طاقية", "أبيض"], points: 60 },
+      { id: "t8", label: "طاولة خشبية / رفوف", aliases: ["طاولة", "خشب", "رفوف", "مطبخ"], points: 60 },
+      { id: "t9", label: "مغرفة خشبية / زيت زيتون", aliases: ["زيت", "مغرفة", "لوح خشبي"], points: 70 },
     ],
   },
   {
     id: "sd-3",
-    title: "شيف البيتزا الإيطالي",
-    prompt: "صف اللي داخل الصورة بدقة! ماذا يفعل الطباخ وما الأشياء من حوله؟",
-    sceneArtworkId: "pizza_chef",
-    modelDescription: "طباخ يرتدي قبعة شيف بيضاء وشارب، يرمي عجينة البيتزا في الهواء أمام فرن حجري مشتعل، وعلى الطاولة طماطم وجبن وزيت زيتون.",
+    title: "غرفة القيمر والستريمر المضيئة",
+    prompt: "صف كل القطع والألوان والأجهزة الظاهرة في غرفة الألعاب هذه بأدق تفصيل!",
+    imageUrl: "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1100&q=85",
+    sceneArtworkId: "cyber_camel",
+    modelDescription: "سيت أب ألعاب احترافي يضم شاشتين عريضتين، كيبورد ميكانيكي مضيء بـ RGB، سماعات رأس معلقة، مايكروفون بث، كرسي قيمنق، وإضاءة نيون زرقاء وبنفسجية في الخلفية مع يد تحكم.",
     tags: [
-      { id: "t1", label: "شيف / طباخ", aliases: ["شيف", "طباخ", "طاهي", "قبعة طبخ"], points: 90 },
-      { id: "t2", label: "عجينة بيتزا", aliases: ["بيتزا", "عجينة", "فطيرة"], points: 100 },
-      { id: "t3", label: "فرن حجري", aliases: ["فرن", "نار", "خبز"], points: 100 },
-      { id: "t4", label: "طماطم", aliases: ["طماطم", "بندورة", "صلصة"], points: 80 },
-      { id: "t5", label: "جبن", aliases: ["جبن", "جبنة", "موزاريلا"], points: 90 },
-      { id: "t6", label: "قبعة الشيف", aliases: ["قبعة", "طاقية"], points: 80 },
+      { id: "t1", label: "شاشات كمبيوتر متعددة", aliases: ["شاشة", "شاشتين", "شاشات", "مونيتر"], points: 80 },
+      { id: "t2", label: "لوحة مفاتيح (كيبورد) مضيئة", aliases: ["كيبورد", "لوحة مفاتيح", "أزرار"], points: 80 },
+      { id: "t3", label: "سماعات رأس (هيدسيت)", aliases: ["سماعة", "سماعات", "هيدسيت"], points: 70 },
+      { id: "t4", label: "إضاءة نيون RGB (أزرق وبنفسجي)", aliases: ["نيون", "إضاءة", "أزرق", "بنفسجي", "وردي", "RGB"], points: 80 },
+      { id: "t5", label: "كرسي قيمنق احترافي", aliases: ["كرسي", "مقعد"], points: 70 },
+      { id: "t6", label: "ماوس وباد عريض", aliases: ["ماوس", "فأرة", "ماوس باد"], points: 60 },
+      { id: "t7", label: "صندوق كمبيوتر (كيس) زجاجي", aliases: ["كمبيوتر", "بي سي", "كيس", "مراوح"], points: 70 },
+      { id: "t8", label: "يد تحكم / مايكروفون", aliases: ["يد تحكم", "مايك", "مايكروفون", "كونترولر"], points: 70 },
     ],
   },
   {
     id: "sd-4",
-    title: "كنز الأعماق",
-    prompt: "صف كل ما تراه تحت الماء في هذا المشهد البحري!",
-    sceneArtworkId: "deep_sea_treasure",
-    modelDescription: "غواص يحمل كاميرا تحت البحر يلتقط صورة لسلحفاة بحرية وصندوق كنز ذهبي مفتوح بجانب أخطبوط وشعاب مرجانية.",
+    title: "صالون مغربي أصيل وجلسة أتاي دافئة",
+    prompt: "صف كل ما تراه داخل هذا الصالون المغربي الفاخر بدقة! (الأواني، الزليج، الفوانيس، الوسائد، والديكور — ١٠ عناصر)",
+    imageUrl: "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "moroccan_living_room",
+    modelDescription: "صالون مغربي تقليدي دافئ يضم جلسة سداري بوسائد مخملية مطرزة، طاولة خشبية منقوشة عليها براد أتاي فاسي فضي وصينية دائرية وكؤوس ملونة، فوانيس نحاسية معلقة من السقف، جدران مزينة بالزليج الأندلسي، وزربية بربرية أصيلة.",
     tags: [
-      { id: "t1", label: "غواص", aliases: ["غواص", "سباح", "بدلة غوص"], points: 100 },
-      { id: "t2", label: "صندوق كنز وذهب", aliases: ["كنز", "صندوق", "ذهب", "عملات"], points: 100 },
-      { id: "t3", label: "سلحفاة بحرية", aliases: ["سلحفاة", "ترسة"], points: 90 },
-      { id: "t4", label: "أخطبوط", aliases: ["أخطبوط", "اخطبوط"], points: 90 },
-      { id: "t5", label: "كاميرا تصوير", aliases: ["كاميرا", "تصوير"], points: 80 },
-      { id: "t6", label: "شعاب مرجانية / أسماك", aliases: ["مرجان", "شعاب", "سمك", "أسماك"], points: 80 },
+      { id: "t1", label: "براد أتاي مغربي منقوش", aliases: ["براد", "إبريق", "شاي", "أتاي", "ابريق"], points: 80 },
+      { id: "t2", label: "صينية فضية / نحاسية دائرية", aliases: ["صينية", "صحن فضي", "صينيه"], points: 80 },
+      { id: "t3", label: "كؤوس أتاي ملونة", aliases: ["كؤوس", "كاس", "كيسان", "أكواب"], points: 80 },
+      { id: "t4", label: "فوانيس نحاسية معلقة", aliases: ["فوانيس", "فانوس", "مصباح", "ثريا"], points: 80 },
+      { id: "t5", label: "وسائد ومخاد مطرزة", aliases: ["وسائد", "مخاد", "مخدة", "وسادة"], points: 70 },
+      { id: "t6", label: "زليج وزخارف جدارية", aliases: ["زليج", "فسيفساء", "نقوش", "جدار"], points: 70 },
+      { id: "t7", label: "طاولة خشبية منقوشة", aliases: ["طاولة", "مائدة", "طاوله"], points: 70 },
+      { id: "t8", label: "زربية وسجاد تقليدي", aliases: ["زربية", "سجاد", "سجادة", "موكيت"], points: 70 },
+      { id: "t9", label: "أقواس وهندسة مغربية أندلسية", aliases: ["قوس", "أقواس", "باب", "نافذة"], points: 60 },
+      { id: "t10", label: "ألوان دافئة (أصفر، أزرق، ذهبي)", aliases: ["ذهبي", "أصفر", "أزرق", "أحمر", "ألوان"], points: 60 },
     ],
   },
   {
     id: "sd-5",
-    title: "سباق الهجن المستقبلي ٢٠٩٠",
-    prompt: "صف العناصر الموجودة في هذا المشهد الخيالي بدقة!",
-    sceneArtworkId: "cyber_camel",
-    modelDescription: "جمل آلي يركض في مضمار سباق مستقبلي مضيء بالنيون، يركبه روبوت صغير، وفي الخلفية ناطحات سحاب وسيارات طائرة.",
+    title: "مقهى الشارع الحيوي والتراس الخارجي",
+    prompt: "صف جميع التفاصيل والأشياء الظاهرة في مشهد هذا المقهى الحيوي بدقة! (١٠ عناصر)",
+    imageUrl: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1200&q=85",
+    sceneArtworkId: "street_cafe",
+    modelDescription: "تراس مقهى خارجي نابض بالحياة يضم طاولات مستديرة خشبية ومعدنية، كراسي خيزران قش، فناجين قهوة وأطباق حلويات، مظلات قماشية كبيرة تقي من الشمس، واجهة مقهى زجاجية مزينة بالزهور ونباتات الزينة، وقائمة أسعار معلقة.",
     tags: [
-      { id: "t1", label: "جمل / هجن", aliases: ["جمل", "هجن", "ناقة", "بعير"], points: 100 },
-      { id: "t2", label: "روبوت / آلي", aliases: ["روبوت", "آلي", "جوكي"], points: 100 },
-      { id: "t3", label: "ناطحات سحاب / أبراج", aliases: ["أبراج", "ناطحات", "مباني", "مدينة"], points: 90 },
-      { id: "t4", label: "سيارة طائرة / درون", aliases: ["سيارة طائرة", "طائرة", "درون", "مركبة"], points: 90 },
-      { id: "t5", label: "مضمار سباق", aliases: ["مضمار", "سباق", "طريق"], points: 80 },
-      { id: "t6", label: "أضواء نيون", aliases: ["نيون", "أضواء", "ليزر"], points: 80 },
+      { id: "t1", label: "طاولات مقهى دائرية", aliases: ["طاولات", "طاولة", "طاوله"], points: 80 },
+      { id: "t2", label: "كراسي خيزران وقش", aliases: ["كراسي", "كرسي", "مقاعد"], points: 80 },
+      { id: "t3", label: "فناجين قهوة وأكواب", aliases: ["قهوة", "فناجين", "فنجان", "كوب"], points: 80 },
+      { id: "t4", label: "مظلات شمسية خارجية", aliases: ["مظلة", "مظلات", "شمسية"], points: 70 },
+      { id: "t5", label: "معجنات وكرواسون", aliases: ["كرواسون", "معجنات", "حلوى", "خبز"], points: 70 },
+      { id: "t6", label: "واجهة زجاجية للمقهى", aliases: ["واجهة", "زجاج", "نافذة"], points: 70 },
+      { id: "t7", label: "نباتات وزهور زينة", aliases: ["نباتات", "زهور", "ورد", "شجر"], points: 60 },
+      { id: "t8", label: "رصيف حجري للمشاة", aliases: ["رصيف", "شارع", "أرضية", "حجر"], points: 60 },
+      { id: "t9", label: "قائمة طعام معلقة", aliases: ["منيو", "قائمة", "لوحة"], points: 70 },
+      { id: "t10", label: "زبائن / رواد مقهى", aliases: ["زبائن", "ناس", "أشخاص", "رواد"], points: 60 },
     ],
   },
 ];

@@ -8,6 +8,13 @@
 
 import { SeenJeemCategory } from "@/data/seedQuestions";
 import { RoomState, Player, sanitizeRoomPlayers } from "@/lib/gameEngine";
+import {
+  getDeviceFingerprint,
+  getDeviceFreeGamesRemainingSync,
+  getDeviceTrialStateSync,
+  MAX_FREE_HOST_GAMES,
+  syncDeviceTrialAcrossLayers,
+} from "@/lib/deviceFingerprint";
 
 export type DbTier = "free" | "party_pass" | "pro";
 
@@ -17,6 +24,8 @@ export interface UserProfileRecord {
   name: string;
   tier: DbTier;
   free_sessions_remaining: number;
+  free_games_used?: number;
+  device_fingerprint?: string;
   pass_expires_at: string | null;
 }
 
@@ -71,10 +80,14 @@ export function getCachedProfile(): UserProfileRecord {
       email: "",
       name: "مضيف السهرة",
       tier: "free",
-      free_sessions_remaining: 1,
+      free_sessions_remaining: MAX_FREE_HOST_GAMES,
+      free_games_used: 0,
       pass_expires_at: null,
     };
   }
+  const deviceTrial = getDeviceTrialStateSync();
+  const deviceRemaining = getDeviceFreeGamesRemainingSync();
+
   const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
   if (raw) {
     try {
@@ -87,6 +100,18 @@ export function getCachedProfile(): UserProfileRecord {
         parsed.tier = "free";
         parsed.pass_expires_at = null;
       }
+      // Enforce anti-fake-account device fingerprint quota
+      const usedFromProfile =
+        typeof parsed.free_games_used === "number"
+          ? parsed.free_games_used
+          : Math.max(0, MAX_FREE_HOST_GAMES - (parsed.free_sessions_remaining ?? MAX_FREE_HOST_GAMES));
+      const trueUsed = Math.max(deviceTrial.freeGamesUsed, usedFromProfile);
+      parsed.free_games_used = trueUsed;
+      parsed.free_sessions_remaining = Math.min(
+        deviceRemaining,
+        Math.max(0, MAX_FREE_HOST_GAMES - trueUsed)
+      );
+      parsed.device_fingerprint = deviceTrial.deviceFingerprint;
       return parsed;
     } catch {
       // ignore
@@ -97,7 +122,9 @@ export function getCachedProfile(): UserProfileRecord {
     email: "",
     name: "مضيف السهرة",
     tier: "free",
-    free_sessions_remaining: 1,
+    free_sessions_remaining: deviceRemaining,
+    free_games_used: deviceTrial.freeGamesUsed,
+    device_fingerprint: deviceTrial.deviceFingerprint,
     pass_expires_at: null,
   };
   window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(initial));
@@ -111,6 +138,21 @@ export function setCachedProfile(profile: UserProfileRecord): void {
 
 export async function fetchCurrentProfile(): Promise<UserProfileRecord> {
   const localProfile = getCachedProfile();
+  const syncedTrial = await syncDeviceTrialAcrossLayers(
+    localProfile.free_games_used
+  );
+  const deviceRemaining = Math.max(
+    0,
+    MAX_FREE_HOST_GAMES - syncedTrial.freeGamesUsed
+  );
+  localProfile.free_games_used = syncedTrial.freeGamesUsed;
+  localProfile.free_sessions_remaining = Math.min(
+    localProfile.free_sessions_remaining,
+    deviceRemaining
+  );
+  localProfile.device_fingerprint = syncedTrial.deviceFingerprint;
+  setCachedProfile(localProfile);
+
   const provider = getActiveBackendProvider();
 
   if (provider === "supabase" && localProfile.id && localProfile.email) {
@@ -124,8 +166,24 @@ export async function fetchCurrentProfile(): Promise<UserProfileRecord> {
       if (res.ok) {
         const rows = (await res.json()) as UserProfileRecord[];
         if (rows[0]) {
-          setCachedProfile(rows[0]);
-          return rows[0];
+          const remoteRow = rows[0];
+          const remoteUsed =
+            typeof remoteRow.free_games_used === "number"
+              ? remoteRow.free_games_used
+              : Math.max(
+                  0,
+                  MAX_FREE_HOST_GAMES -
+                    (remoteRow.free_sessions_remaining ?? MAX_FREE_HOST_GAMES)
+                );
+          const mergedTrial = await syncDeviceTrialAcrossLayers(remoteUsed);
+          remoteRow.free_games_used = mergedTrial.freeGamesUsed;
+          remoteRow.free_sessions_remaining = Math.max(
+            0,
+            MAX_FREE_HOST_GAMES - mergedTrial.freeGamesUsed
+          );
+          remoteRow.device_fingerprint = mergedTrial.deviceFingerprint;
+          setCachedProfile(remoteRow);
+          return remoteRow;
         }
       }
     } catch {
@@ -193,12 +251,18 @@ export async function signUpWithEmail(
         window.localStorage.setItem(SESSION_TOKEN_KEY, data.access_token);
       }
       const userId = data.user?.id || "supa-" + Date.now();
+      const trial = await syncDeviceTrialAcrossLayers();
       const profile: UserProfileRecord = {
         id: userId,
         email: cleanEmail,
         name: cleanName,
         tier: "free",
-        free_sessions_remaining: 1,
+        free_sessions_remaining: Math.max(
+          0,
+          MAX_FREE_HOST_GAMES - trial.freeGamesUsed
+        ),
+        free_games_used: trial.freeGamesUsed,
+        device_fingerprint: getDeviceFingerprint(),
         pass_expires_at: null,
       };
       setCachedProfile(profile);
@@ -239,11 +303,18 @@ export async function signUpWithEmail(
   }
 
   const existing = getCachedProfile();
+  const trial = await syncDeviceTrialAcrossLayers(existing.free_games_used);
   const profile: UserProfileRecord = {
     ...existing,
     id: existing.id || "usr-" + Math.random().toString(36).slice(2, 10),
     email: cleanEmail,
     name: cleanName,
+    free_games_used: trial.freeGamesUsed,
+    free_sessions_remaining: Math.max(
+      0,
+      MAX_FREE_HOST_GAMES - trial.freeGamesUsed
+    ),
+    device_fingerprint: trial.deviceFingerprint,
   };
   setCachedProfile(profile);
   return { profile };
@@ -354,6 +425,9 @@ export async function updateProfileRecord(
           body: JSON.stringify({
             tier: next.tier,
             free_sessions_remaining: next.free_sessions_remaining,
+            free_games_used:
+              next.free_games_used ??
+              Math.max(0, MAX_FREE_HOST_GAMES - next.free_sessions_remaining),
             pass_expires_at: next.pass_expires_at,
             name: next.name,
             updated_at: new Date().toISOString(),

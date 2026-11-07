@@ -7,129 +7,27 @@ import {
   fisherYatesShuffle,
   loadPlayedQuestionIds,
 } from "@/lib/questionRandomizer";
+import { EditionFlagIcon, QadhaLogo } from "@/components/QadhaLogo";
 
-// ============================================================================
-// 1. DUAL-REGION ARCHITECTURE (MOROCCO 'MA' + MENA 'MENA')
-// ============================================================================
-
-export type RegionCode = "MA" | "MENA";
-export type EditionRegion = RegionCode;
-export type SeenJeemBoardSize = 18 | 36;
-export type SeenJeemAnswerMode = "TYPING" | "BUZZER";
-
-export interface EditionConfig {
-  region: RegionCode;
-  switcherLabel: string;
-  flag: string;
-  partyTerm: string;
-  gatheringPhrase: string;
-  deviceTerm: string;
-  currencyLabel: string;
-  currencySymbol: string;
-  partyPassPrice: string;
-  proHostPrice: string;
-  defaultTeam1Name: string;
-  defaultTeam2Name: string;
-  defaultPlayerPlaceholder: string;
-  defaultHostPlaceholder: string;
-  ticketName: string;
-}
-
-export const EDITIONS: Record<RegionCode, EditionConfig> = {
-  MA: {
-    region: "MA",
-    switcherLabel: "🇲🇦 النسخة المغربية",
-    flag: "🇲🇦",
-    partyTerm: "الگلسة / القصارة",
-    gatheringPhrase: "للمّات مع العشران والعائلة",
-    deviceTerm: "بالتيليفون",
-    currencyLabel: "درهم مغربي (DH)",
-    currencySymbol: "DH",
-    partyPassPrice: "25 DH",
-    proHostPrice: "70 DH",
-    defaultTeam1Name: "أسود الأطلس",
-    defaultTeam2Name: "القراصنة",
-    defaultPlayerPlaceholder: "مثال: أمين",
-    defaultHostPlaceholder: "ياسين",
-    ticketName: "تذكرة الگلسة",
-  },
-  MENA: {
-    region: "MENA",
-    switcherLabel: "🌍 النسخة العربية",
-    flag: "🌍",
-    partyTerm: "السهرة",
-    gatheringPhrase: "للجمعات مع الأصدقاء",
-    deviceTerm: "بالجوال",
-    currencyLabel: "دولار ($)",
-    currencySymbol: "$",
-    partyPassPrice: "$2.99",
-    proHostPrice: "$7.99",
-    defaultTeam1Name: "فريق الصقور",
-    defaultTeam2Name: "فريق النمور",
-    defaultPlayerPlaceholder: "مثال: عزوز",
-    defaultHostPlaceholder: "سلطان",
-    ticketName: "تذكرة السهرة",
-  },
-};
-
-const REGION_STORAGE_KEY = "seen_jeem_region_edition_v1";
-const REGION_EVENT_NAME = "seen_jeem_region_changed";
-const ADAPTER_STORAGE_PREFIX = "seen_jeem_frontend_adapter_v1_";
-const ADAPTER_CHANNEL_NAME = "seen_jeem_adapter_channel_v1";
-
-export const BUZZ_PREFIX = "__BUZZ__:";
-export const BUZZER_MODE_MARKER = "__MODE_BUZZER__";
-
-let currentRegionMemory: RegionCode = "MA";
-
-export function hasSavedRegion(): boolean {
-  if (typeof window === "undefined") return true;
-  const saved = window.localStorage.getItem(REGION_STORAGE_KEY);
-  return saved === "MA" || saved === "MENA";
-}
-
-export function getRegion(): RegionCode {
-  if (typeof window === "undefined") return currentRegionMemory;
-  const saved = window.localStorage.getItem(REGION_STORAGE_KEY);
-  if (saved === "MA" || saved === "MENA") {
-    currentRegionMemory = saved;
-    return saved;
-  }
-  return "MA";
-}
-
-export const getEditionRegion = getRegion;
-
-export function setRegion(nextRegion: RegionCode): void {
-  currentRegionMemory = nextRegion;
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(REGION_STORAGE_KEY, nextRegion);
-  window.dispatchEvent(
-    new CustomEvent<RegionCode>(REGION_EVENT_NAME, { detail: nextRegion })
-  );
-  try {
-    const bc = new BroadcastChannel(ADAPTER_CHANNEL_NAME);
-    bc.postMessage({ type: "REGION_CHANGE", region: nextRegion });
-    bc.close();
-  } catch {
-    // Ignore BroadcastChannel errors
-  }
-}
-
-export function getEditionConfig(region?: RegionCode): EditionConfig {
-  const target = region || getRegion();
-  return EDITIONS[target] || EDITIONS.MA;
-}
-
-export function isDefaultTeamName(name: string): boolean {
-  const trimmed = name.trim();
-  return (
-    trimmed === EDITIONS.MA.defaultTeam1Name ||
-    trimmed === EDITIONS.MA.defaultTeam2Name ||
-    trimmed === EDITIONS.MENA.defaultTeam1Name ||
-    trimmed === EDITIONS.MENA.defaultTeam2Name
-  );
-}
+// Re-export pure constants & server-safe types
+export * from "@/lib/editionConstants";
+import {
+  ADAPTER_CHANNEL_NAME,
+  ADAPTER_STORAGE_PREFIX,
+  BUZZ_PREFIX,
+  BUZZER_MODE_MARKER,
+  EDITIONS,
+  EditionConfig,
+  getRegion,
+  hasSavedRegion,
+  isValidRegionCode,
+  RegionCode,
+  REGION_EVENT_NAME,
+  REGION_STORAGE_KEY,
+  SeenJeemAnswerMode,
+  SeenJeemBoardSize,
+  setRegion,
+} from "@/lib/editionConstants";
 
 export function useEdition() {
   const [region, setRegionState] = useState<RegionCode>("MA");
@@ -139,7 +37,7 @@ export function useEdition() {
 
     const handleCustom = (e: Event) => {
       const customEvent = e as CustomEvent<RegionCode>;
-      if (customEvent.detail === "MA" || customEvent.detail === "MENA") {
+      if (isValidRegionCode(customEvent.detail)) {
         setRegionState(customEvent.detail);
       } else {
         setRegionState(getRegion());
@@ -158,7 +56,7 @@ export function useEdition() {
       bc.onmessage = (evt) => {
         if (
           evt.data?.type === "REGION_CHANGE" &&
-          (evt.data.region === "MA" || evt.data.region === "MENA")
+          isValidRegionCode(evt.data.region)
         ) {
           setRegionState(evt.data.region);
         }
@@ -181,10 +79,14 @@ export function useEdition() {
     setRegion(next);
   };
 
+  const edition = EDITIONS[region] || EDITIONS.MA;
+
   return {
     region,
     setRegion: updateRegion,
-    edition: EDITIONS[region] || EDITIONS.MA,
+    edition,
+    isEn: region === "EN",
+    dir: edition.dir,
   };
 }
 
@@ -206,9 +108,9 @@ export function RegionSwitcher({
           : "bg-white border-black text-black shadow-brutal-sm"
       }`,
       role: "group",
-      "aria-label": "اختيار النسخة الإقليمية",
+      "aria-label": "Edition Switcher",
     },
-    (["MA", "MENA"] as const).map((code) => {
+    (["MA", "MENA", "EN"] as const).map((code) => {
       const active = region === code;
       const cfg = EDITIONS[code];
       return React.createElement(
@@ -219,7 +121,7 @@ export function RegionSwitcher({
           onClick: () => setRegion(code),
           className: `${
             compact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"
-          } rounded-xl font-black transition whitespace-nowrap ${
+          } rounded-xl font-black transition whitespace-nowrap inline-flex items-center gap-1.5 ${
             active
               ? "bg-sunny text-black border-2 border-black shadow-sm"
               : dark
@@ -227,7 +129,11 @@ export function RegionSwitcher({
               : "text-gray-600 hover:text-black"
           }`,
         },
-        cfg.switcherLabel
+        React.createElement(EditionFlagIcon, {
+          edition: code,
+          className: "w-5 h-3.5",
+        }),
+        React.createElement("span", null, cfg.switcherLabel)
       );
     })
   );
@@ -262,25 +168,22 @@ export function EditionOnboardingGate({
     "div",
     {
       className:
-        "fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4",
+        "fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto",
       dir: "rtl",
     },
     React.createElement(
       "div",
       {
         className:
-          "bg-cream border-4 border-black rounded-3xl p-6 md:p-8 max-w-xl w-full shadow-brutal-lg space-y-6 text-right",
+          "bg-cream border-4 border-black rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-brutal-lg space-y-6 text-right my-4",
       },
       React.createElement(
         "div",
         { className: "space-y-2 text-center" },
         React.createElement(
           "div",
-          {
-            className:
-              "w-16 h-16 rounded-2xl bg-sunny border-3 border-black shadow-brutal-sm flex items-center justify-center text-3xl font-black mx-auto",
-          },
-          "ق؟"
+          { className: "flex justify-center" },
+          React.createElement(QadhaLogo, { edition: region, size: "lg" })
         ),
         React.createElement(
           "span",
@@ -288,28 +191,29 @@ export function EditionOnboardingGate({
             className:
               "inline-block px-3 py-0.5 rounded-full bg-coral text-black border-2 border-black text-xs font-black",
           },
-          "مرحباً بك في قَدْهَا؟ (QADHA)"
+          "مرحباً بك في قَدْهَا؟ • Welcome to QADHA?"
         ),
         React.createElement(
           "h2",
           { className: "text-2xl md:text-3xl font-black text-black" },
-          "اختر نسختك المفضلة للبدء"
+          "اختر نسختك المفضلة للبدء • Choose Your Edition"
         ),
         React.createElement(
           "p",
           { className: "text-xs md:text-sm font-bold text-gray-700" },
-          "يتم ضبط الأسئلة، الشخصيات الكرتونية، المصطلحات، والعملة تلقائياً حسب اختيارك (ويمكنك تغييرها لاحقاً من الشاشة الرئيسية قبل بدء الغرفة)."
+          "يتم ضبط الأسئلة، الشخصيات الكرتونية، المصطلحات، اتجاه الشاشة (RTL/LTR)، والعملة تلقائياً حسب اختيارك."
         )
       ),
       React.createElement(
         "div",
-        { className: "grid grid-cols-1 gap-4" },
+        { className: "grid grid-cols-1 gap-3.5" },
+        // 1. Moroccan Edition (MA)
         React.createElement(
           "button",
           {
             type: "button",
             onClick: () => handleSelectEdition("MA"),
-            className: `w-full p-5 rounded-2xl border-4 border-black text-right transition flex items-center justify-between gap-4 ${
+            className: `w-full p-4 md:p-5 rounded-2xl border-4 border-black text-right transition flex items-center justify-between gap-4 ${
               region === "MA"
                 ? "bg-sunny text-black shadow-brutal -translate-y-0.5"
                 : "bg-white hover:bg-sunny/40 text-black shadow-brutal-sm"
@@ -320,8 +224,19 @@ export function EditionOnboardingGate({
             { className: "space-y-1" },
             React.createElement(
               "div",
-              { className: "text-lg md:text-xl font-black flex items-center gap-2" },
-              "🇲🇦 النسخة المغربية (الگلسة والقصارة - بالدرهم المغربي)"
+              {
+                className:
+                  "text-base md:text-xl font-black flex items-center gap-2.5",
+              },
+              React.createElement(EditionFlagIcon, {
+                edition: "MA",
+                className: "w-7 h-5",
+              }),
+              React.createElement(
+                "span",
+                null,
+                "النسخة المغربية (الگلسة والقصارة - بالدرهم المغربي)"
+              )
             ),
             React.createElement(
               "p",
@@ -333,17 +248,22 @@ export function EditionOnboardingGate({
             "span",
             {
               className:
-                "px-3 py-1.5 rounded-xl bg-black text-sunny font-black text-xs shrink-0",
+                "px-3.5 py-2 rounded-xl bg-black text-sunny font-black text-xs shrink-0 inline-flex items-center gap-1.5",
             },
-            "اختر 🇲🇦"
+            React.createElement("span", null, "اختر"),
+            React.createElement(EditionFlagIcon, {
+              edition: "MA",
+              className: "w-4 h-3",
+            })
           )
         ),
+        // 2. MENA Arabic Edition (MENA)
         React.createElement(
           "button",
           {
             type: "button",
             onClick: () => handleSelectEdition("MENA"),
-            className: `w-full p-5 rounded-2xl border-4 border-black text-right transition flex items-center justify-between gap-4 ${
+            className: `w-full p-4 md:p-5 rounded-2xl border-4 border-black text-right transition flex items-center justify-between gap-4 ${
               region === "MENA"
                 ? "bg-royal text-white shadow-brutal -translate-y-0.5"
                 : "bg-white hover:bg-royal/10 text-black shadow-brutal-sm"
@@ -354,8 +274,19 @@ export function EditionOnboardingGate({
             { className: "space-y-1" },
             React.createElement(
               "div",
-              { className: "text-lg md:text-xl font-black flex items-center gap-2" },
-              "🌍 النسخة العربية العالمية (السهرة والجمعات - بالدولار)"
+              {
+                className:
+                  "text-base md:text-xl font-black flex items-center gap-2.5",
+              },
+              React.createElement(EditionFlagIcon, {
+                edition: "MENA",
+                className: "w-7 h-5",
+              }),
+              React.createElement(
+                "span",
+                null,
+                "النسخة العربية العالمية (السهرة والجمعات - بالدولار)"
+              )
             ),
             React.createElement(
               "p",
@@ -371,9 +302,64 @@ export function EditionOnboardingGate({
             "span",
             {
               className:
-                "px-3 py-1.5 rounded-xl bg-sunny text-black border border-black font-black text-xs shrink-0",
+                "px-3.5 py-2 rounded-xl bg-sunny text-black border border-black font-black text-xs shrink-0 inline-flex items-center gap-1.5",
             },
-            "اختر 🌍"
+            React.createElement("span", null, "اختر"),
+            React.createElement(EditionFlagIcon, {
+              edition: "MENA",
+              className: "w-4 h-3",
+            })
+          )
+        ),
+        // 3. Native Cultural English Edition (EN)
+        React.createElement(
+          "button",
+          {
+            type: "button",
+            dir: "ltr",
+            onClick: () => handleSelectEdition("EN"),
+            className: `w-full p-4 md:p-5 rounded-2xl border-4 border-black text-left transition flex items-center justify-between gap-4 ${
+              region === "EN"
+                ? "bg-mint text-black shadow-brutal -translate-y-0.5"
+                : "bg-white hover:bg-mint/30 text-black shadow-brutal-sm"
+            }`,
+          },
+          React.createElement(
+            "div",
+            { className: "space-y-1" },
+            React.createElement(
+              "div",
+              {
+                className:
+                  "text-base md:text-xl font-black flex items-center gap-2.5",
+              },
+              React.createElement(EditionFlagIcon, {
+                edition: "EN",
+                className: "w-7 h-5",
+              }),
+              React.createElement(
+                "span",
+                null,
+                "🎮 International English Edition (Game Night & Trivia — USD $)"
+              )
+            ),
+            React.createElement(
+              "p",
+              { className: "text-xs font-bold text-gray-800" },
+              "Pop Culture, Cinema, World Sports, Tech & Gaming • Full LTR UI • Jackbox & Jeopardy Vibe • Apex Legends vs Night Owls"
+            )
+          ),
+          React.createElement(
+            "span",
+            {
+              className:
+                "px-3.5 py-2 rounded-xl bg-black text-sunny font-black text-xs shrink-0 inline-flex items-center gap-1.5",
+            },
+            React.createElement(EditionFlagIcon, {
+              edition: "EN",
+              className: "w-4 h-3",
+            }),
+            React.createElement("span", null, "Play EN")
           )
         )
       )
@@ -404,7 +390,6 @@ export function getRoomAdapterState(code: string): RoomFrontendAdapterState {
   const key = ADAPTER_STORAGE_PREFIX + code.toUpperCase().trim();
   const raw = window.localStorage.getItem(key);
   if (!raw) {
-    // Initialize a random shuffle seed per room code so every room gets a fresh board
     let codeHash = Date.now() & 0xffff;
     for (let i = 0; i < code.length; i++) {
       codeHash = (codeHash * 33 + code.charCodeAt(i)) >>> 0;
@@ -472,8 +457,8 @@ export function setRoomAdapterState(
 
 /**
  * Selects and shuffles a category's questions down to 3 questions (200, 400, 600) when
- * boardSize === 18 ("جلسة سريعة"), or 6 questions (two 200s, two 400s, two 600s) when
- * boardSize === 36 ("جلسة مطولة"), prioritizing unseen questions and using Fisher-Yates shuffle.
+ * boardSize === 18, or 6 questions (two 200s, two 400s, two 600s) when boardSize === 36,
+ * prioritizing unseen questions and using Fisher-Yates shuffle.
  */
 export function filterQuestionsByBoardSize(
   questions: SeenJeemQuestion[],
@@ -491,7 +476,6 @@ export function filterQuestionsByBoardSize(
 
   for (const pts of tiers) {
     const tierQuestions = questions.filter((q) => q.points === pts);
-    // Keep already-answered questions in this room visible so their "✔ تم اللعب" tile stays intact
     const alreadyAnsweredInRoom = tierQuestions.filter((q) =>
       answeredSet.has(q.id)
     );
@@ -504,7 +488,6 @@ export function filterQuestionsByBoardSize(
       .reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7);
     const tierSeed = (shuffleSeed * 997 + pts * 13 + catHash) >>> 0;
 
-    // Prioritize unseen questions first, then seen questions as fallback
     const unseen = remainingCandidates.filter((q) => !playedSet.has(q.id));
     const seen = remainingCandidates.filter((q) => playedSet.has(q.id));
 

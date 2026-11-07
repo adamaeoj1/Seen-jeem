@@ -4,24 +4,36 @@ import {
   DRAWING_CHALLENGE_ROUNDS,
   DrawingChallengeRound,
   MAP_PIN_ROUNDS,
+  MapPinRound,
   MINI_GAMES_META,
   MiniGameId,
+  MiniGameMeta,
   PRICE_GUESS_ROUNDS,
   PriceGuessRound,
   QUICK_REFLEX_ROUNDS,
   SCENE_DESCRIPTION_ROUNDS,
+  SceneDescriptionRound,
   SEEN_JEEM_CATEGORIES,
   SeenJeemCategory,
   SeenJeemQuestion,
   SPEED_TRIVIA_ROUNDS,
   SpeedTriviaRound,
   WHATS_IN_FRAME_ROUNDS,
+  WhatsInFrameRound,
 } from "@/data/seedQuestions";
 import {
   MOROCCAN_PRICE_GUESS_ROUNDS,
   MOROCCAN_SEEN_JEEM_CATEGORIES,
 } from "@/data/moroccanSeedQuestions";
-import { EditionRegion, getEditionRegion } from "@/lib/editionManager";
+import {
+  ENGLISH_MAP_PIN_ROUNDS,
+  ENGLISH_MINI_GAMES_META,
+  ENGLISH_PRICE_GUESS_ROUNDS,
+  ENGLISH_SCENE_DESCRIPTION_ROUNDS,
+  ENGLISH_SEEN_JEEM_CATEGORIES,
+  ENGLISH_WHATS_IN_FRAME_ROUNDS,
+} from "@/data/englishSeedQuestions";
+import { EditionRegion, getEditionRegion } from "@/lib/editionConstants";
 import {
   applyQuestionBankOverrides,
   getMergedClosestNumberRounds,
@@ -33,6 +45,10 @@ import {
 } from "@/lib/questionRandomizer";
 import { getActiveLicense } from "@/lib/voucherEngine";
 import {
+  getDeviceFreeGamesRemainingSync,
+  MAX_FREE_HOST_GAMES,
+} from "@/lib/deviceFingerprint";
+import {
   calculateHaversineDistanceKm,
   DescriptionVerdict,
   evaluateArabicAnswer,
@@ -40,7 +56,7 @@ import {
   RefereeVerdict,
   scoreMapDistance,
 } from "@/lib/arabicReferee";
-import { AvatarCharacterId, AVATAR_CHARACTERS } from "@/components/CartoonAvatars";
+import { AvatarCharacterId, AVATAR_CHARACTERS } from "@/lib/avatarData";
 import { VoicePackId } from "@/lib/soundEffects";
 import {
   broadcastRoomState,
@@ -61,19 +77,25 @@ export type GameStatePhase =
   | "ROUND_INTRO"
   | "PLAYING"
   | "LOCKED"
+  | "STEAL_WINDOW"
   | "REVEAL_AND_SCORE"
   | "LEADERBOARD";
 
 export type MajorGameMode = "SEEN_JEEM" | "MINI_GAMES";
 export type SessionModeConfig = "SEEN_JEEM" | "MINI_GAMES" | "MIXED_PARTY";
-export type TeamId = "team1" | "team2";
+export type TeamId = "team1" | "team2" | "team3" | "team4";
 
 export interface RoomSettings {
   sessionMode: SessionModeConfig;
+  teamCount?: 2 | 3 | 4;
   team1Name: string;
   team1Color: string;
   team2Name: string;
   team2Color: string;
+  team3Name?: string;
+  team3Color?: string;
+  team4Name?: string;
+  team4Color?: string;
   timerSec: 30 | 45 | 60;
   soundEnabled: boolean;
   musicEnabled: boolean;
@@ -125,6 +147,7 @@ export interface TeamInfo {
 
 export interface RoomState {
   code: string;
+  status?: "ACTIVE" | "ROOM_CLOSED";
   createdAt: number;
   updatedAt: number;
   hostTier: SubscriptionTierId;
@@ -132,16 +155,40 @@ export interface RoomState {
   majorMode: MajorGameMode;
   settings: RoomSettings;
 
+  teamCount?: 2 | 3 | 4;
   teams: {
     team1: TeamInfo;
     team2: TeamInfo;
+    team3?: TeamInfo;
+    team4?: TeamInfo;
   };
   teamA?: { name: string; score: number };
   teamB?: { name: string; score: number };
-  edition?: "MA" | "MENA";
+  edition?: "MA" | "MENA" | "EN";
   boardSize?: 18 | 36;
   answeringMode?: "TYPING" | "BUZZER";
   players: Player[];
+
+  // Power Cards Engine (Steal ⚡, Freeze 🧊, Qammar 🎲)
+  powerCards?: Record<
+    string,
+    { steal: boolean; freeze: boolean; qammar: boolean }
+  >;
+  frozenPlayerIds?: string[];
+  activeWager?: {
+    teamId: TeamId;
+    amount: number;
+    isAllIn?: boolean;
+  } | null;
+  stealState?: {
+    questionId: string;
+    endsAt: number;
+    stolenByTeam?: TeamId | null;
+    stolenByPlayerId?: string | null;
+    stolenByPlayerName?: string | null;
+    originalPoints: number;
+    answeringTimeRemaining?: number;
+  } | null;
 
   // Timer state
   roundStartedAt: number;
@@ -183,6 +230,55 @@ export interface UserSubscriptionState {
 
 const PLAYER_IDENTITY_KEY = "seen_jeem_player_identity_v2";
 
+export function createInitialPowerCards(
+  teamCount: 2 | 3 | 4 = 2
+): Record<string, { steal: boolean; freeze: boolean; qammar: boolean }> {
+  const cards: Record<
+    string,
+    { steal: boolean; freeze: boolean; qammar: boolean }
+  > = {
+    team1: { steal: true, freeze: true, qammar: true },
+    team2: { steal: true, freeze: true, qammar: true },
+  };
+  if (teamCount >= 3) {
+    cards.team3 = { steal: true, freeze: true, qammar: true };
+  }
+  if (teamCount >= 4) {
+    cards.team4 = { steal: true, freeze: true, qammar: true };
+  }
+  return cards;
+}
+
+export function getActiveTeamIds(room: RoomState): TeamId[] {
+  const count =
+    room.teamCount ||
+    (room.teams?.team3 ? (room.teams?.team4 ? 4 : 3) : 2);
+  if (count === 4) return ["team1", "team2", "team3", "team4"];
+  if (count === 3) return ["team1", "team2", "team3"];
+  return ["team1", "team2"];
+}
+
+export function getActiveTeams(room: RoomState): TeamInfo[] {
+  const ids = getActiveTeamIds(room);
+  const result: TeamInfo[] = [];
+  for (const tid of ids) {
+    if (room.teams && room.teams[tid]) {
+      result.push(room.teams[tid]!);
+    }
+  }
+  return result;
+}
+
+export function getNextTeamTurn(
+  room: RoomState,
+  currentTurn: TeamId = room.activeTeamTurn
+): TeamId {
+  const ids = getActiveTeamIds(room);
+  const idx = ids.indexOf(currentTurn);
+  if (idx === -1) return ids[0] || "team1";
+  return ids[(idx + 1) % ids.length];
+}
+
 export const AVATAR_OPTIONS: AvatarCharacterId[] = AVATAR_CHARACTERS.map(
   (c) => c.id
 );
@@ -200,8 +296,18 @@ export function getRegionalSeedCategories(
   region: EditionRegion = getEditionRegion()
 ): SeenJeemCategory[] {
   const base =
-    region === "MA" ? MOROCCAN_SEEN_JEEM_CATEGORIES : SEEN_JEEM_CATEGORIES;
-  return applyQuestionBankOverrides(base);
+    region === "EN"
+      ? ENGLISH_SEEN_JEEM_CATEGORIES
+      : region === "MA"
+      ? MOROCCAN_SEEN_JEEM_CATEGORIES
+      : SEEN_JEEM_CATEGORIES;
+  return applyQuestionBankOverrides(base, region);
+}
+
+export function getRegionalMiniGamesMeta(
+  region: EditionRegion = getEditionRegion()
+): MiniGameMeta[] {
+  return region === "EN" ? ENGLISH_MINI_GAMES_META : MINI_GAMES_META;
 }
 
 export function getRegionalPriceGuessRounds(
@@ -209,7 +315,11 @@ export function getRegionalPriceGuessRounds(
 ): PriceGuessRound[] {
   const merged = getMergedPriceGuessRounds(region);
   if (merged.length > 0) return merged;
-  return region === "MA" ? MOROCCAN_PRICE_GUESS_ROUNDS : PRICE_GUESS_ROUNDS;
+  return region === "EN"
+    ? ENGLISH_PRICE_GUESS_ROUNDS
+    : region === "MA"
+    ? MOROCCAN_PRICE_GUESS_ROUNDS
+    : PRICE_GUESS_ROUNDS;
 }
 
 export function getRegionalSpeedTriviaRounds(
@@ -231,6 +341,26 @@ export function getRegionalDrawingChallengeRounds(
 ): DrawingChallengeRound[] {
   const merged = getMergedDrawingRounds(region);
   return merged.length > 0 ? merged : DRAWING_CHALLENGE_ROUNDS;
+}
+
+export function getRegionalMapPinRounds(
+  region: EditionRegion = getEditionRegion()
+): MapPinRound[] {
+  return region === "EN" ? ENGLISH_MAP_PIN_ROUNDS : MAP_PIN_ROUNDS;
+}
+
+export function getRegionalWhatsInFrameRounds(
+  region: EditionRegion = getEditionRegion()
+): WhatsInFrameRound[] {
+  return region === "EN" ? ENGLISH_WHATS_IN_FRAME_ROUNDS : WHATS_IN_FRAME_ROUNDS;
+}
+
+export function getRegionalSceneDescriptionRounds(
+  region: EditionRegion = getEditionRegion()
+): SceneDescriptionRound[] {
+  return region === "EN"
+    ? ENGLISH_SCENE_DESCRIPTION_ROUNDS
+    : SCENE_DESCRIPTION_ROUNDS;
 }
 
 export function sanitizeRoomPlayers(players?: Player[]): Player[] {
@@ -259,16 +389,43 @@ export function createInitialRoomState(
       ? chosenCategories.slice(0, 6)
       : regionalCats.slice(0, 6).map((c) => c.id);
 
+  const teamCount = (customSettings?.teamCount || 2) as 2 | 3 | 4;
+  const defaultT3 =
+    activeRegion === "EN"
+      ? "Desert Falcons"
+      : activeRegion === "MA"
+      ? "فرسان البوغاز"
+      : "فريق الذئاب";
+  const defaultT4 =
+    activeRegion === "EN"
+      ? "Storm Knights"
+      : activeRegion === "MA"
+      ? "صقور الصحراء"
+      : "فريق الفرسان";
+
   const settings: RoomSettings = {
     sessionMode: customSettings?.sessionMode || "SEEN_JEEM",
+    teamCount,
     team1Name:
       customSettings?.team1Name?.trim() ||
-      (activeRegion === "MA" ? "أسود الأطلس" : "فريق الصقور"),
+      (activeRegion === "EN"
+        ? "The Legends"
+        : activeRegion === "MA"
+        ? "أسود الأطلس"
+        : "فريق الصقور"),
     team1Color: customSettings?.team1Color || "#3B66B4",
     team2Name:
       customSettings?.team2Name?.trim() ||
-      (activeRegion === "MA" ? "القراصنة" : "فريق النمور"),
+      (activeRegion === "EN"
+        ? "Night Owls"
+        : activeRegion === "MA"
+        ? "القراصنة"
+        : "فريق النمور"),
     team2Color: customSettings?.team2Color || "#E65C2E",
+    team3Name: customSettings?.team3Name?.trim() || defaultT3,
+    team3Color: customSettings?.team3Color || "#10B981",
+    team4Name: customSettings?.team4Name?.trim() || defaultT4,
+    team4Color: customSettings?.team4Color || "#8B5CF6",
     timerSec: customSettings?.timerSec || 45,
     soundEnabled: customSettings?.soundEnabled ?? true,
     musicEnabled: customSettings?.musicEnabled ?? true,
@@ -277,8 +434,45 @@ export function createInitialRoomState(
   const initialMajorMode: MajorGameMode =
     settings.sessionMode === "MINI_GAMES" ? "MINI_GAMES" : "SEEN_JEEM";
 
+  const initialTeams: RoomState["teams"] = {
+    team1: {
+      id: "team1",
+      name: settings.team1Name,
+      color: settings.team1Color,
+      score: 0,
+      doublePointsRemaining: 1,
+    },
+    team2: {
+      id: "team2",
+      name: settings.team2Name,
+      color: settings.team2Color,
+      score: 0,
+      doublePointsRemaining: 1,
+    },
+  };
+
+  if (teamCount >= 3) {
+    initialTeams.team3 = {
+      id: "team3",
+      name: settings.team3Name || defaultT3,
+      color: settings.team3Color || "#10B981",
+      score: 0,
+      doublePointsRemaining: 1,
+    };
+  }
+  if (teamCount >= 4) {
+    initialTeams.team4 = {
+      id: "team4",
+      name: settings.team4Name || defaultT4,
+      color: settings.team4Color || "#8B5CF6",
+      score: 0,
+      doublePointsRemaining: 1,
+    };
+  }
+
   return {
     code: cleanCode,
+    status: "ACTIVE",
     createdAt: Date.now(),
     updatedAt: Date.now(),
     hostTier,
@@ -288,22 +482,8 @@ export function createInitialRoomState(
     boardSize: 18,
     answeringMode: "TYPING",
     settings,
-    teams: {
-      team1: {
-        id: "team1",
-        name: settings.team1Name,
-        color: settings.team1Color,
-        score: 0,
-        doublePointsRemaining: 1,
-      },
-      team2: {
-        id: "team2",
-        name: settings.team2Name,
-        color: settings.team2Color,
-        score: 0,
-        doublePointsRemaining: 1,
-      },
-    },
+    teamCount,
+    teams: initialTeams,
     teamA: {
       name: settings.team1Name,
       score: 0,
@@ -313,6 +493,10 @@ export function createInitialRoomState(
       score: 0,
     },
     players: [], // Zero default bots when creating any new room
+    powerCards: createInitialPowerCards(teamCount),
+    frozenPlayerIds: [],
+    activeWager: null,
+    stealState: null,
     roundStartedAt: Date.now(),
     roundDurationSec: settings.timerSec,
     selectedCategoryIds: defaultCategories,
@@ -337,14 +521,21 @@ export function getAllCategories(
   room: RoomState,
   region: EditionRegion = getEditionRegion()
 ): SeenJeemCategory[] {
-  const orderedSeed =
-    region === "MA"
-      ? [...MOROCCAN_SEEN_JEEM_CATEGORIES, ...SEEN_JEEM_CATEGORIES]
-      : [...SEEN_JEEM_CATEGORIES, ...MOROCCAN_SEEN_JEEM_CATEGORIES];
-  const overridden = applyQuestionBankOverrides(orderedSeed);
+  const effectiveRegion = room.edition || region;
+  const seed =
+    effectiveRegion === "EN"
+      ? ENGLISH_SEEN_JEEM_CATEGORIES
+      : effectiveRegion === "MA"
+      ? MOROCCAN_SEEN_JEEM_CATEGORIES
+      : SEEN_JEEM_CATEGORIES;
+  const overridden = applyQuestionBankOverrides(seed, effectiveRegion);
   const existingIds = new Set(overridden.map((c) => c.id));
+  const seenTitles = new Set(overridden.map((c) => c.title.trim().toLowerCase()));
   const extraRoomCats = (room.customCategories || []).filter(
-    (c) => !existingIds.has(c.id)
+    (c) =>
+      (!c.edition || c.edition === effectiveRegion) &&
+      !existingIds.has(c.id) &&
+      !seenTitles.has(c.title.trim().toLowerCase())
   );
   return [...overridden, ...extraRoomCats];
 }
@@ -396,8 +587,7 @@ export function gradeCurrentRound(room: RoomState): RoomState {
           )
         : question.acceptedAnswers;
 
-    let team1Correct = false;
-    let team2Correct = false;
+    const correctTeams = new Set<TeamId>();
     let trapTriggered = false;
 
     for (const sub of subs) {
@@ -422,17 +612,63 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       }
 
       if (verdict.isCorrect) {
-        if (actualTeam === "team1") team1Correct = true;
-        if (actualTeam === "team2") team2Correct = true;
+        correctTeams.add(actualTeam);
         if (playerObj) playerObj.score += questionPoints;
       }
     }
 
-    const t1Gain = team1Correct ? questionPoints : 0;
-    const t2Gain = team2Correct ? questionPoints : 0;
+    const wager = next.activeWager;
+    let wagerSummary = "";
 
-    next.teams.team1.score += t1Gain;
-    next.teams.team2.score += t2Gain;
+    // Handle Active Qammar Wager
+    if (wager && next.teams[wager.teamId]) {
+      const wagerTeam = next.teams[wager.teamId]!;
+      if (correctTeams.has(wager.teamId)) {
+        const bonus = wager.amount * 2;
+        wagerTeam.score += bonus;
+        wagerSummary = `🔥 نجح رهان «قَمّر»! ${wagerTeam.name} ضاعف الرهان وحصد +${bonus} نقطة!`;
+      } else {
+        wagerTeam.score = Math.max(0, wagerTeam.score - wager.amount);
+        wagerSummary = `💥 خسارة رهان «قَمّر»! خسر ${wagerTeam.name} ${wager.amount} نقطة.`;
+      }
+      next.activeWager = null;
+    }
+
+    // Award normal points to winning teams without wager
+    for (const tid of Array.from(correctTeams)) {
+      if (wager && wager.teamId === tid) continue;
+      if (next.teams[tid]) {
+        next.teams[tid]!.score += questionPoints;
+      }
+    }
+
+    const t1Gain = correctTeams.has("team1") ? (wager?.teamId === "team1" ? wager.amount * 2 : questionPoints) : 0;
+    const t2Gain = correctTeams.has("team2") ? (wager?.teamId === "team2" ? wager.amount * 2 : questionPoints) : 0;
+    next.seenJeemBaseAwarded = { team1: t1Gain, team2: t2Gain };
+
+    if (correctTeams.size === 1) {
+      const winnerId = Array.from(correctTeams)[0];
+      next.lastSeenJeemWinner = winnerId;
+      next.roundSummaryText = wagerSummary || `${next.teams[winnerId]?.name || ""} حصد +${questionPoints} نقطة!`;
+      next.activeTeamTurn = winnerId;
+    } else if (correctTeams.size > 1) {
+      next.lastSeenJeemWinner = "both";
+      next.roundSummaryText = wagerSummary || `أصابت الفرق الصحيحة (+${questionPoints} نقطة)!`;
+      next.activeTeamTurn = getNextTeamTurn(next, next.activeTeamTurn);
+    } else {
+      next.lastSeenJeemWinner = "none";
+      next.roundSummaryText =
+        wagerSummary ||
+        (trapTriggered && question.trapNote
+          ? question.trapNote
+          : "لم يصل أي فريق للإجابة الصحيحة في هذه الجولة.");
+      next.activeTeamTurn = getNextTeamTurn(next, next.activeTeamTurn);
+    }
+
+    // Reset round-specific power card states
+    next.frozenPlayerIds = [];
+    next.stealState = null;
+
     next.teamA = {
       name: next.teams.team1.name,
       score: next.teams.team1.score,
@@ -441,28 +677,6 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       name: next.teams.team2.name,
       score: next.teams.team2.score,
     };
-    next.seenJeemBaseAwarded = { team1: t1Gain, team2: t2Gain };
-
-    if (team1Correct && team2Correct) {
-      next.lastSeenJeemWinner = "both";
-      next.roundSummaryText = `كلا الفريقين أصابا الإجابة الصحيحة (+${questionPoints} نقطة)!`;
-      next.activeTeamTurn = next.activeTeamTurn === "team1" ? "team2" : "team1";
-    } else if (team1Correct) {
-      next.lastSeenJeemWinner = "team1";
-      next.roundSummaryText = `${next.teams.team1.name} حصد +${questionPoints} نقطة!`;
-      next.activeTeamTurn = "team1";
-    } else if (team2Correct) {
-      next.lastSeenJeemWinner = "team2";
-      next.roundSummaryText = `${next.teams.team2.name} حصد +${questionPoints} نقطة!`;
-      next.activeTeamTurn = "team2";
-    } else {
-      next.lastSeenJeemWinner = "none";
-      next.roundSummaryText =
-        trapTriggered && question.trapNote
-          ? question.trapNote
-          : "لم يصل أي فريق للإجابة الصحيحة في هذه الجولة.";
-      next.activeTeamTurn = next.activeTeamTurn === "team1" ? "team2" : "team1";
-    }
 
     if (!next.answeredQuestionIds.includes(question.id)) {
       next.answeredQuestionIds.push(question.id);
@@ -542,8 +756,8 @@ export function gradeCurrentRound(room: RoomState): RoomState {
     });
     next.roundSummaryText = `السعر الحقيقي: ${targetPrice.toLocaleString("en-US")} ${currencySuffix}`;
   } else if (gameId === "WHATS_IN_FRAME") {
-    const round =
-      WHATS_IN_FRAME_ROUNDS[next.miniGameRoundIndex % WHATS_IN_FRAME_ROUNDS.length];
+    const frameRounds = getRegionalWhatsInFrameRounds(activeRegion);
+    const round = frameRounds[next.miniGameRoundIndex % frameRounds.length];
     markQuestionAsPlayed(round.id);
     for (const sub of subs) {
       const verdict = evaluateArabicAnswer(
@@ -614,7 +828,8 @@ export function gradeCurrentRound(room: RoomState): RoomState {
     }
     next.roundSummaryText = `الرسمة السرية كانت: «${round.secretWord}»`;
   } else if (gameId === "MAP_PIN") {
-    const round = MAP_PIN_ROUNDS[next.miniGameRoundIndex % MAP_PIN_ROUNDS.length];
+    const mapRounds = getRegionalMapPinRounds(activeRegion);
+    const round = mapRounds[next.miniGameRoundIndex % mapRounds.length];
     markQuestionAsPlayed(round.id);
     const validSubs = subs.filter(
       (s) => typeof s.pinLat === "number" && typeof s.pinLng === "number"
@@ -640,10 +855,8 @@ export function gradeCurrentRound(room: RoomState): RoomState {
     });
     next.roundSummaryText = `الموقع الصحيح: ${round.placeName} — ${round.funFact}`;
   } else if (gameId === "SCENE_DESCRIPTION") {
-    const round =
-      SCENE_DESCRIPTION_ROUNDS[
-        next.miniGameRoundIndex % SCENE_DESCRIPTION_ROUNDS.length
-      ];
+    const sceneRounds = getRegionalSceneDescriptionRounds(activeRegion);
+    const round = sceneRounds[next.miniGameRoundIndex % sceneRounds.length];
     markQuestionAsPlayed(round.id);
     for (const sub of subs) {
       const descVerdict = evaluateDescriptionTags(
@@ -683,15 +896,19 @@ function awardPointsToPlayerAndTeam(
   if (player) {
     player.score += points;
   }
-  room.teams[actualTeam].score += points;
-  room.teamA = {
-    name: room.teams.team1.name,
-    score: room.teams.team1.score,
-  };
-  room.teamB = {
-    name: room.teams.team2.name,
-    score: room.teams.team2.score,
-  };
+  if (room.teams[actualTeam]) {
+    room.teams[actualTeam]!.score += points;
+  }
+  if (room.teams.team1 && room.teams.team2) {
+    room.teamA = {
+      name: room.teams.team1.name,
+      score: room.teams.team1.score,
+    };
+    room.teamB = {
+      name: room.teams.team2.name,
+      score: room.teams.team2.score,
+    };
+  }
 }
 
 export function applyHostSeenJeemOverride(
@@ -702,8 +919,8 @@ export function applyHostSeenJeemOverride(
   const { question } = getActiveSeenJeemQuestion(next);
   if (!question) return next;
 
-  next.teams.team1.score -= next.seenJeemBaseAwarded.team1;
-  next.teams.team2.score -= next.seenJeemBaseAwarded.team2;
+  next.teams.team1.score -= next.seenJeemBaseAwarded?.team1 || 0;
+  next.teams.team2.score -= next.seenJeemBaseAwarded?.team2 || 0;
 
   const multiplier = next.doublePointsActive ? 2 : 1;
   const pts = question.points * multiplier;
@@ -712,22 +929,34 @@ export function applyHostSeenJeemOverride(
   let t2 = 0;
   if (winner === "team1") {
     t1 = pts;
+    next.teams.team1.score += pts;
     next.activeTeamTurn = "team1";
     next.roundSummaryText = `تم احتساب +${pts} نقطة لصالح ${next.teams.team1.name}`;
   } else if (winner === "team2") {
     t2 = pts;
+    next.teams.team2.score += pts;
     next.activeTeamTurn = "team2";
     next.roundSummaryText = `تم احتساب +${pts} نقطة لصالح ${next.teams.team2.name}`;
+  } else if (winner === "team3" && next.teams.team3) {
+    next.teams.team3.score += pts;
+    next.activeTeamTurn = "team3";
+    next.roundSummaryText = `تم احتساب +${pts} نقطة لصالح ${next.teams.team3.name}`;
+  } else if (winner === "team4" && next.teams.team4) {
+    next.teams.team4.score += pts;
+    next.activeTeamTurn = "team4";
+    next.roundSummaryText = `تم احتساب +${pts} نقطة لصالح ${next.teams.team4.name}`;
   } else if (winner === "both") {
     t1 = pts;
     t2 = pts;
-    next.roundSummaryText = `تم احتساب +${pts} نقطة لكلا الفريقين`;
+    next.teams.team1.score += pts;
+    next.teams.team2.score += pts;
+    if (next.teams.team3) next.teams.team3.score += pts;
+    if (next.teams.team4) next.teams.team4.score += pts;
+    next.roundSummaryText = `تم احتساب +${pts} نقطة للفرق المشاركة`;
   } else {
     next.roundSummaryText = "لا نقاط لأي فريق في هذا السؤال";
   }
 
-  next.teams.team1.score += t1;
-  next.teams.team2.score += t2;
   next.teamA = {
     name: next.teams.team1.name,
     score: next.teams.team1.score,
@@ -777,6 +1006,9 @@ export function profileToSubscriptionState(
 ): UserSubscriptionState {
   const customCategories = loadLocalCustomPacks();
   const activeVoucher = getActiveLicense();
+  const deviceRemaining = getDeviceFreeGamesRemainingSync(
+    profile.free_sessions_remaining
+  );
 
   if (activeVoucher) {
     const isPro =
@@ -784,7 +1016,7 @@ export function profileToSubscriptionState(
       activeVoucher.prefix === "CAFEMODE";
     return {
       tier: isPro ? "PRO_HOST" : "PARTY_PASS",
-      freeSessionsRemaining: profile.free_sessions_remaining,
+      freeSessionsRemaining: deviceRemaining,
       partyPassExpiresAt: activeVoucher.expiresAt,
       proSubscriptionActive: isPro,
       customCategories,
@@ -800,7 +1032,7 @@ export function profileToSubscriptionState(
   };
   return {
     tier: tierMap[profile.tier] || "FREE_TRIAL",
-    freeSessionsRemaining: profile.free_sessions_remaining,
+    freeSessionsRemaining: deviceRemaining,
     partyPassExpiresAt: profile.pass_expires_at
       ? new Date(profile.pass_expires_at).getTime()
       : null,
@@ -852,14 +1084,21 @@ export function canHostCreateSession(sub: UserSubscriptionState): {
     sub.partyPassExpiresAt &&
     Date.now() < sub.partyPassExpiresAt
   ) {
-    return { allowed: true, reasonAr: "تذكرة السهرة نشطة" };
+    return { allowed: true, reasonAr: "تذكرة الگلسة (24 ساعة) نشطة" };
   }
-  if (sub.freeSessionsRemaining > 0) {
-    return { allowed: true, reasonAr: "جلستك المجانية جاهزة" };
+  const effectiveRemaining = getDeviceFreeGamesRemainingSync(
+    sub.freeSessionsRemaining
+  );
+  if (effectiveRemaining > 0) {
+    return {
+      allowed: true,
+      reasonAr: `الجلسات المجانية المتبقية كمضيف: (${effectiveRemaining}/${MAX_FREE_HOST_GAMES})`,
+    };
   }
   return {
     allowed: false,
-    reasonAr: "انتهت جلستك المجانية — فعّل تذكرة السهرة أو باقة المحترفين للمتابعة.",
+    reasonAr:
+      "لقد استهلكت جلستيك المجانيتين كمضيف (2/2) — فعّل تذكرة الگلسة (25 DH) أو اشتراك المضيف المحترف للمتابعة!",
   };
 }
 

@@ -6,28 +6,38 @@ import {
   Bell,
   CheckCircle2,
   Clock,
+  Dices,
   Edit3,
   Eraser,
   Home,
   Lock,
   MapPin,
+  RotateCcw,
   Send,
   ShieldCheck,
+  Snowflake,
   Trash2,
   Trophy,
   Undo2,
   Volume2,
+  Zap,
 } from "lucide-react";
 import {
+  createInitialPowerCards,
   createInitialRoomState,
   getActiveSeenJeemQuestion,
+  getActiveTeamIds,
+  getActiveTeams,
   getRegionalClosestNumberRounds,
   getRegionalDrawingChallengeRounds,
+  getRegionalMapPinRounds,
+  getRegionalMiniGamesMeta,
   getRegionalPriceGuessRounds,
+  getRegionalSceneDescriptionRounds,
   getRegionalSpeedTriviaRounds,
+  getRegionalWhatsInFrameRounds,
   loadRoomFromLocal,
   loadSavedPlayerIdentity,
-  MINI_GAMES_META,
   Player,
   PlayerSubmission,
   RoomState,
@@ -38,23 +48,19 @@ import {
 } from "@/lib/gameEngine";
 import { getShuffledSpeedTriviaRound } from "@/lib/questionRandomizer";
 import {
-  CLOSEST_NUMBER_ROUNDS,
-  DRAWING_CHALLENGE_ROUNDS,
-  MAP_PIN_ROUNDS,
   QUICK_REFLEX_ROUNDS,
   ReflexColor,
   ReflexShape,
-  SCENE_DESCRIPTION_ROUNDS,
-  SPEED_TRIVIA_ROUNDS,
-  WHATS_IN_FRAME_ROUNDS,
 } from "@/data/seedQuestions";
 import { parseArabicNumber } from "@/lib/arabicReferee";
 import {
   EcommerceProductCard,
   FrameSceneArtwork,
+  PhotoQuestionViewer,
   SceneDescriptionArtwork,
 } from "@/components/GameArtwork";
 import { InteractiveWorldMap } from "@/components/InteractiveWorldMap";
+import { QadhaLogo } from "@/components/QadhaLogo";
 import {
   AvatarCharacterId,
   CartoonAvatar,
@@ -102,6 +108,7 @@ export default function PlayerControllerPage() {
     lng: number;
   } | null>(null);
   const [isEditingAnswer, setIsEditingAnswer] = useState(false);
+  const [showFreezeModal, setShowFreezeModal] = useState(false);
   const [timeLeft, setTimeLeft] = useState(45);
 
   const lastRoundKeyRef = useRef<string>("");
@@ -149,6 +156,17 @@ export default function PlayerControllerPage() {
     initPlayerRoom();
 
     const unsubscribe = subscribeToRoomUpdates(roomCode, (updated) => {
+      if (updated?.status === "ROOM_CLOSED") {
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.removeItem("seen_jeem_player_identity_v2");
+            sessionStorage.clear();
+          } catch {}
+        }
+        alert("انتهت الجلسة! شكراً للعب في قَدْهَا؟");
+        router.push("/");
+        return;
+      }
       setRoom(updated);
       setAdapterState(getRoomAdapterState(roomCode));
     });
@@ -167,6 +185,20 @@ export default function PlayerControllerPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
+
+  // Reactive listener for room closure by host
+  useEffect(() => {
+    if (room?.status === "ROOM_CLOSED") {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem("seen_jeem_player_identity_v2");
+          sessionStorage.clear();
+        } catch {}
+      }
+      alert("انتهت الجلسة! شكراً للعب في قَدْهَا؟");
+      router.push("/");
+    }
+  }, [room?.status, router]);
 
   // Reset inputs when active round changes
   useEffect(() => {
@@ -218,29 +250,78 @@ export default function PlayerControllerPage() {
     name: string,
     avatar: AvatarCharacterId,
     voiceId: VoicePackId,
-    team: TeamId
+    team?: TeamId
   ) => {
     const cloned: RoomState = JSON.parse(JSON.stringify(targetRoom));
     let found = cloned.players.find((p) => p.id === id);
     if (!found) {
+      // Auto-balance team across all active teams (2, 3, or 4 teams)
+      const activeIds = getActiveTeamIds(cloned);
+      const counts: Record<TeamId, number> = {
+        team1: 0,
+        team2: 0,
+        team3: 0,
+        team4: 0,
+      };
+      cloned.players.forEach((p) => {
+        if (counts[p.team] !== undefined) counts[p.team]++;
+      });
+
+      let assignedTeam: TeamId =
+        team && activeIds.includes(team) ? team : activeIds[0];
+      let minCount = Infinity;
+      for (const tid of activeIds) {
+        if (counts[tid] < minCount) {
+          minCount = counts[tid];
+          assignedTeam = tid;
+        }
+      }
+
       found = {
         id,
         name,
         avatar,
         voiceId,
-        team,
+        team: assignedTeam,
         isCaptain: false,
         isOnline: true,
         score: 0,
         connectedAt: Date.now(),
       };
       cloned.players.push(found);
+      savePlayerIdentity({
+        id: found.id,
+        name: found.name,
+        avatar: found.avatar,
+        voiceId: found.voiceId,
+        team: found.team,
+      });
       saveRoomToLocalAndBroadcast(cloned, found);
       dbRegisterRoomPlayer(roomCode, found).catch(() => {});
       setRoom(cloned);
     }
     setCurrentPlayer(found);
     setNeedsOnboarding(false);
+  };
+
+  const handleSwitchTeam = (newTeam: TeamId) => {
+    if (!room || !currentPlayer || currentPlayer.team === newTeam) return;
+    const cloned: RoomState = JSON.parse(JSON.stringify(room));
+    const me = cloned.players.find((p) => p.id === currentPlayer.id);
+    if (me) {
+      me.team = newTeam;
+      savePlayerIdentity({
+        id: me.id,
+        name: me.name,
+        avatar: me.avatar,
+        voiceId: me.voiceId,
+        team: newTeam,
+      });
+      saveRoomToLocalAndBroadcast(cloned, me);
+      dbRegisterRoomPlayer(roomCode, me).catch(() => {});
+      setRoom(cloned);
+      setCurrentPlayer(me);
+    }
   };
 
   const handleCompleteOnboarding = (e: React.FormEvent) => {
@@ -259,8 +340,88 @@ export default function PlayerControllerPage() {
     ensurePlayerInRoom(room, pid, cleanName, joinAvatar, joinVoice, joinTeam);
   };
 
+  // Claim Steal during STEAL_WINDOW (consumes team's steal power card)
+  const handleClaimSteal = () => {
+    if (!room || !currentPlayer) return;
+    playVoicePack(currentPlayer.voiceId || "hype_horn", true);
+
+    const { question } = getActiveSeenJeemQuestion(room);
+    const targetPoints = question?.points || 200;
+    const cloned: RoomState = JSON.parse(JSON.stringify(room));
+    const cards = {
+      ...(cloned.powerCards || createInitialPowerCards(cloned.teamCount || 2)),
+    };
+    if (cards[currentPlayer.team]) {
+      cards[currentPlayer.team].steal = false;
+    }
+    const myTeamName =
+      cloned.teams[currentPlayer.team]?.name || currentPlayer.team;
+    cloned.powerCards = cards;
+    cloned.phase = "PLAYING";
+    cloned.activeTeamTurn = currentPlayer.team;
+    cloned.roundDurationSec = 10;
+    cloned.roundStartedAt = Date.now();
+    cloned.stealState = {
+      questionId: cloned.activeQuestionId || "",
+      endsAt: Date.now() + 10000,
+      stolenByTeam: currentPlayer.team,
+      stolenByPlayerId: currentPlayer.id,
+      stolenByPlayerName: currentPlayer.name,
+      originalPoints: targetPoints,
+    };
+    cloned.roundSummaryText = `⚡ خطف السؤال! ${myTeamName} خطف السؤال ولديه 10 ثوانٍ للإجابة!`;
+    cloned.updatedAt = Date.now();
+
+    saveRoomToLocalAndBroadcast(cloned);
+    fetch(`/api/rooms/${roomCode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "CLAIM_STEAL",
+        teamId: currentPlayer.team,
+        playerId: currentPlayer.id,
+        playerName: currentPlayer.name,
+        points: targetPoints,
+      }),
+    }).catch(() => {});
+    setRoom(cloned);
+  };
+
+  // Tactical Freeze: Freeze a rival player for the current round
+  const handleFreezePlayer = (targetPlayerId: string) => {
+    if (!room || !currentPlayer) return;
+    playVoicePack("buzzer_wrong", true);
+    const cloned: RoomState = JSON.parse(JSON.stringify(room));
+    const cards = {
+      ...(cloned.powerCards || createInitialPowerCards(cloned.teamCount || 2)),
+    };
+    if (cards[currentPlayer.team]) {
+      cards[currentPlayer.team].freeze = false;
+    }
+    cloned.powerCards = cards;
+    cloned.frozenPlayerIds = [targetPlayerId];
+    cloned.updatedAt = Date.now();
+
+    saveRoomToLocalAndBroadcast(cloned);
+    fetch(`/api/rooms/${roomCode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "FREEZE_PLAYER",
+        teamId: currentPlayer.team,
+        targetPlayerId,
+      }),
+    }).catch(() => {});
+    setRoom(cloned);
+    setShowFreezeModal(false);
+  };
+
   const submitPlayerResponse = (payload: Partial<PlayerSubmission>) => {
     if (!room || !currentPlayer) return;
+    if (room.frozenPlayerIds?.includes(currentPlayer.id)) {
+      alert("🥶 أنت مجمد في هذه الجولة بواسطة الفريق المنافس ولا يمكنك إرسال إجابة!");
+      return;
+    }
     const latestMe =
       room.players.find((p) => p.id === currentPlayer.id) || currentPlayer;
     const elapsedMs = Math.max(100, Date.now() - room.roundStartedAt);
@@ -294,6 +455,7 @@ export default function PlayerControllerPage() {
     );
   }
 
+  const activeTeams = getActiveTeams(room);
   const team1DynamicName =
     room.teams?.team1?.name || room.teamA?.name || edition.defaultTeam1Name;
   const team2DynamicName =
@@ -302,12 +464,20 @@ export default function PlayerControllerPage() {
   // Onboarding Screen with 8 Custom SVG Illustrated Avatars + Voice Picker
   if (needsOnboarding || !currentPlayer) {
     return (
-      <div className="max-w-md mx-auto min-h-[100dvh] bg-sunny border-x-4 border-black p-4 flex flex-col justify-between">
+      <div
+        dir={edition.dir}
+        className="max-w-md mx-auto min-h-[100dvh] bg-sunny border-x-4 border-black p-4 flex flex-col justify-between"
+      >
         <div className="space-y-4">
           <div className="bg-black text-sunny rounded-2xl p-3.5 border-2 border-black flex items-center justify-between">
-            <span className="font-black text-xs">
-              جهاز تحكم اللاعب ({edition.deviceTerm})
-            </span>
+            <div className="flex items-center gap-2">
+              <QadhaLogo edition={region} size="sm" showWordmark={false} />
+              <span className="font-black text-xs">
+                {edition.isEnglish
+                  ? `Player Controller (${edition.deviceTerm})`
+                  : `جهاز تحكم اللاعب (${edition.deviceTerm})`}
+              </span>
+            </div>
             <span dir="ltr" className="font-mono font-black text-base">
               {room.code}
             </span>
@@ -332,29 +502,28 @@ export default function PlayerControllerPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setJoinTeam("team1")}
-                  className={`py-2.5 rounded-xl border-2 border-black font-black text-xs transition ${
-                    joinTeam === "team1"
-                      ? "bg-royal text-white shadow-brutal-sm"
-                      : "bg-cream text-black"
-                  }`}
-                >
-                  {team1DynamicName}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setJoinTeam("team2")}
-                  className={`py-2.5 rounded-xl border-2 border-black font-black text-xs transition ${
-                    joinTeam === "team2"
-                      ? "bg-burnt text-white shadow-brutal-sm"
-                      : "bg-cream text-black"
-                  }`}
-                >
-                  {team2DynamicName}
-                </button>
+              <div
+                className={`grid gap-2 ${
+                  activeTeams.length > 2 ? "grid-cols-2" : "grid-cols-2"
+                }`}
+              >
+                {activeTeams.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setJoinTeam(t.id)}
+                    style={{
+                      backgroundColor: joinTeam === t.id ? t.color : undefined,
+                    }}
+                    className={`py-2.5 px-2 rounded-xl border-2 border-black font-black text-xs transition ${
+                      joinTeam === t.id
+                        ? "text-white shadow-brutal-sm scale-102 ring-2 ring-black"
+                        : "bg-cream text-black hover:bg-white"
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
               </div>
 
               {/* 8 Custom SVG Illustrated Avatars (Moroccan in MA, MENA in MENA) */}
@@ -456,25 +625,35 @@ export default function PlayerControllerPage() {
   const currentQuestion = activeSeenJeemQ
     ? { ...activeSeenJeemQ, text: activeSeenJeemQ.question }
     : null;
+  const regionalMiniGamesMeta = getRegionalMiniGamesMeta(region);
   const activeMiniGameMeta =
-    MINI_GAMES_META.find((m) => m.id === room.activeMiniGameId) ||
-    MINI_GAMES_META[0];
+    regionalMiniGamesMeta.find((m) => m.id === room.activeMiniGameId) ||
+    regionalMiniGamesMeta[0];
 
   const myTeamInfo =
-    currentPlayer.team === "team1" ? room.teams.team1 : room.teams.team2;
-  const myTeamDynamicName =
-    currentPlayer.team === "team1" ? team1DynamicName : team2DynamicName;
-  const myTeamDynamicScore =
-    currentPlayer.team === "team1"
-      ? room.teams?.team1?.score ?? room.teamA?.score ?? 0
-      : room.teams?.team2?.score ?? room.teamB?.score ?? 0;
-  const headerColor = myTeamInfo?.color || "#3B66B4";
+    room.teams?.[currentPlayer.team] ||
+    activeTeams.find((t) => t.id === currentPlayer.team) ||
+    room.teams?.team1 || {
+      id: currentPlayer.team,
+      name: "فريقك",
+      score: 0,
+      color: "#3B66B4",
+    };
+  const myTeamDynamicName = myTeamInfo.name;
+  const myTeamDynamicScore = myTeamInfo.score ?? 0;
+  const headerColor = myTeamInfo.color || "#3B66B4";
+  const isFrozen = Boolean(
+    room.frozenPlayerIds?.includes(currentPlayer.id)
+  );
 
   return (
-    <div className="max-w-md mx-auto min-h-[100dvh] bg-cream border-x-4 border-black flex flex-col justify-between shadow-2xl">
+    <div
+      dir={edition.dir}
+      className="max-w-md mx-auto min-h-[100dvh] flex flex-col justify-between bg-cream border-x-4 border-black shadow-2xl overflow-x-hidden"
+    >
       {/* Clean Mobile Controller Header (Dynamic Team Badge from Synced Room State) */}
       <header
-        className="text-white border-b-4 border-black p-3.5 flex items-center justify-between"
+        className="text-white border-b-4 border-black p-3 flex items-center justify-between"
         style={{ backgroundColor: headerColor }}
       >
         <div className="flex items-center gap-2.5">
@@ -509,13 +688,68 @@ export default function PlayerControllerPage() {
         </div>
       </header>
 
+      {/* Team Tactical Power Cards HUD on Phone */}
+      {room.powerCards && room.powerCards[currentPlayer.team] && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-black/5 border-b-2 border-black/10 text-[10px] font-black">
+          <span className="text-gray-600 font-bold">بطاقات فريقك:</span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 font-black ${
+                room.powerCards[currentPlayer.team]?.steal
+                  ? "bg-amber-100 border-amber-400 text-amber-900"
+                  : "bg-gray-100 border-gray-300 text-gray-400 line-through"
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              خطف
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 font-black ${
+                room.powerCards[currentPlayer.team]?.freeze
+                  ? "bg-cyan-100 border-cyan-400 text-cyan-900"
+                  : "bg-gray-100 border-gray-300 text-gray-400 line-through"
+              }`}
+            >
+              <Snowflake className="w-3 h-3" />
+              تجميد
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded-md border text-[10px] flex items-center gap-1 font-black ${
+                room.powerCards[currentPlayer.team]?.qammar
+                  ? "bg-rose-100 border-rose-400 text-rose-900"
+                  : "bg-gray-100 border-gray-300 text-gray-400 line-through"
+              }`}
+            >
+              <Dices className="w-3 h-3" />
+              قَمّر
+            </span>
+
+            {/* Quick Freeze Trigger from Phone if Freeze Card is Available */}
+            {room.powerCards[currentPlayer.team]?.freeze &&
+              (room.phase === "LOBBY" ||
+                room.phase === "MODE_SELECT" ||
+                room.phase === "ROUND_INTRO" ||
+                room.phase === "PLAYING") && (
+                <button
+                  type="button"
+                  onClick={() => setShowFreezeModal(true)}
+                  className="ms-1 px-2 py-0.5 rounded-md bg-cyan-500 hover:bg-cyan-600 text-white font-black text-[10px] border border-black shadow-brutal-sm flex items-center gap-0.5"
+                >
+                  <Snowflake className="w-3 h-3" />
+                  <span>جمّد خصم</span>
+                </button>
+              )}
+          </div>
+        </div>
+      )}
+
       {/* Main Controller Body */}
-      <main className="flex-1 p-4 flex flex-col justify-center space-y-4 overflow-y-auto">
+      <main className="flex-1 p-3.5 flex flex-col justify-center space-y-3 overflow-y-auto">
         {/* WAITING STATES: LOBBY, MODE_SELECT, ROUND_INTRO */}
         {(room.phase === "LOBBY" ||
           room.phase === "MODE_SELECT" ||
           room.phase === "ROUND_INTRO") && (
-          <div className="bg-sunny border-4 border-black rounded-3xl p-6 shadow-brutal text-center space-y-4">
+          <div className="bg-sunny border-4 border-black rounded-3xl p-5 shadow-brutal text-center space-y-3.5">
             <CartoonAvatar
               avatarId={currentPlayer.avatar}
               size="lg"
@@ -539,18 +773,51 @@ export default function PlayerControllerPage() {
               onClick={() =>
                 playVoicePack(currentPlayer.voiceId || "hype_horn", true)
               }
-              className="w-full py-3 rounded-2xl bg-white hover:bg-cream text-black font-black text-xs border-3 border-black shadow-brutal-sm flex items-center justify-center gap-2"
+              className="w-full py-2.5 rounded-2xl bg-white hover:bg-cream text-black font-black text-xs border-3 border-black shadow-brutal-sm flex items-center justify-center gap-2"
             >
               <Volume2 className="w-4 h-4 text-royal" />
               <span>🔊 جرب صوتك في الغرفة</span>
             </button>
 
-            <div className="bg-white border-3 border-black rounded-2xl p-3 text-xs font-black flex items-center justify-between">
+            <div className="bg-white border-3 border-black rounded-2xl p-2.5 text-xs font-black flex items-center justify-between">
               <span>فريقك: {myTeamDynamicName}</span>
               <span className="font-mono text-base text-royal">
                 {myTeamDynamicScore} نقطة
               </span>
             </div>
+
+            {/* In Lobby: Player can switch between the room's actual custom team names */}
+            {room.phase === "LOBBY" && (
+              <div className="bg-white/70 border-2 border-black rounded-2xl p-2.5 space-y-1.5">
+                <div className="text-[11px] font-black text-gray-700">
+                  هل ترغب في تغيير فريقك؟ اضغط للتبديل:
+                </div>
+                <div
+                  className={`grid gap-2 ${
+                    activeTeams.length > 2 ? "grid-cols-2" : "grid-cols-2"
+                  }`}
+                >
+                  {activeTeams.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => handleSwitchTeam(t.id)}
+                      style={{
+                        backgroundColor:
+                          currentPlayer.team === t.id ? t.color : undefined,
+                      }}
+                      className={`py-2 px-2.5 rounded-xl border-2 border-black font-black text-xs transition-all ${
+                        currentPlayer.team === t.id
+                          ? "text-white shadow-brutal-sm ring-2 ring-black scale-102"
+                          : "bg-white text-black hover:bg-cream"
+                      }`}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -612,26 +879,101 @@ export default function PlayerControllerPage() {
           </div>
         )}
 
+        {/* STEAL WINDOW STATE (10-Second Steal Countdown for Opposing Teams) */}
+        {room.phase === "STEAL_WINDOW" && (
+          <div className="bg-burnt text-white border-4 border-black rounded-3xl p-6 shadow-brutal text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-sunny text-black border-3 border-black shadow-brutal-sm flex items-center justify-center mx-auto text-3xl">
+              ⚡
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-2xl font-black text-sunny">
+                نافذة خطف السؤال (10 ثوانٍ)!
+              </h2>
+              <p className="text-xs font-bold text-cream">
+                أخطأ الفريق الحالي أو انتهى وقته! الفرصة متاحة الآن للفرق المنافسة.
+              </p>
+            </div>
+
+            {currentPlayer.team !== room.activeTeamTurn ? (
+              room.powerCards?.[currentPlayer.team]?.steal ? (
+                <div className="space-y-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleClaimSteal}
+                    className="w-full py-5 rounded-2xl bg-sunny hover:bg-yellow-300 text-black font-black text-xl border-4 border-black shadow-brutal-lg active:scale-95 transition flex items-center justify-center gap-2 animate-bounce"
+                  >
+                    <Zap className="w-6 h-6 fill-black text-black" />
+                    <span>⚡ اخطف السؤال الآن! (10 ثوانٍ)</span>
+                  </button>
+                  <p className="text-[11px] font-bold text-white/90">
+                    سيتم استهلاك بطاقة الخطف لفريقك وفتح 10 ثوانٍ للإجابة بنسبة 100% من النقاط!
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-black/40 border-2 border-white/20 rounded-2xl p-4 text-xs font-black text-white/80">
+                  ❌ لقد استهلك فريقكم بطاقة «خطف السؤال» سابقاً في هذه الجلسة.
+                </div>
+              )
+            ) : (
+              <div className="bg-black/40 border-2 border-white/20 rounded-2xl p-4 text-xs font-black text-white/80">
+                ⏳ انتهت فرصة فريقكم في هذا السؤال! بانتظار نافذة خطف المنافسين...
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ACTIVE INPUT CONTROLLERS */}
         {room.phase === "PLAYING" && !hasSubmittedAndLocked && (
           <>
-            {/* MODE A: SEEN JEEM CONTROLLER (Supports Both Auto-Referee Typing & Zero-Backend Buzzer Mode) */}
-            {room.majorMode === "SEEN_JEEM" && activeSeenJeemQ && (
-              <div className="bg-sunny border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="px-3 py-1 rounded-full bg-black text-sunny text-xs font-black">
-                    {activeCat?.title} • {activeSeenJeemQ.points}
-                  </span>
-                  {room.doublePointsActive && (
-                    <span className="px-2.5 py-0.5 rounded-full bg-coral border border-black text-xs font-black">
-                      دبل x2 🔥
-                    </span>
-                  )}
+            {isFrozen ? (
+              <div className="bg-cyan-100 border-4 border-cyan-500 rounded-3xl p-6 text-center space-y-4 shadow-brutal animate-pulse">
+                <div className="text-6xl animate-bounce">🥶🧊</div>
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-black text-cyan-950">
+                    تم تجميدك في هذه الجولة!
+                  </h2>
+                  <p className="text-xs font-black text-cyan-800 leading-relaxed">
+                    قام الفريق المنافس بتجميدك 🧊 لا يمكنك الكتابة أو إرسال جواب أو ضغط الجرس في هذا السؤال.
+                  </p>
                 </div>
+                <div className="p-3 bg-white/90 border-2 border-cyan-400 rounded-2xl text-xs font-bold text-cyan-900">
+                  ❄️ شجع فريقك شفهياً! سيعود جهازك للعمل تلقائياً فور الانتقال للسؤال التالي.
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* MODE A: SEEN JEEM CONTROLLER (Supports Both Auto-Referee Typing & Zero-Backend Buzzer Mode) */}
+                {room.majorMode === "SEEN_JEEM" && activeSeenJeemQ && (
+                  <div className="bg-sunny border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="px-3 py-1 rounded-full bg-black text-sunny text-xs font-black">
+                        {activeCat?.title} • {activeSeenJeemQ.points}
+                      </span>
+                      {room.doublePointsActive && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-coral border border-black text-xs font-black">
+                          دبل x2 🔥
+                        </span>
+                      )}
+                    </div>
+
+                    {room.stealState && (
+                      <div className="px-3 py-2 rounded-xl bg-burnt text-white border-2 border-black text-xs font-black flex items-center justify-center gap-1.5 animate-pulse">
+                        <Zap className="w-4 h-4 fill-sunny text-sunny" />
+                        <span>⚡ جولة خطف نشطة! الإجابة تحسب بنسبة 100% من النقاط!</span>
+                      </div>
+                    )}
 
                 <h2 className="text-base font-black leading-snug bg-white border-3 border-black rounded-2xl p-4">
                   {activeSeenJeemQ.question}
                 </h2>
+
+                {activeSeenJeemQ.imageUrl && (
+                  <PhotoQuestionViewer
+                    imageUrl={activeSeenJeemQ.imageUrl}
+                    caption={activeSeenJeemQ.question}
+                    compact
+                  />
+                )}
 
                 {isBuzzerMode ? (
                   <div className="space-y-3 pt-1">
@@ -863,13 +1205,18 @@ export default function PlayerControllerPage() {
               room.activeMiniGameId === "WHATS_IN_FRAME" && (
                 <div className="bg-white border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
                   {(() => {
+                    const framePool = getRegionalWhatsInFrameRounds(region);
                     const round =
-                      WHATS_IN_FRAME_ROUNDS[
-                        room.miniGameRoundIndex % WHATS_IN_FRAME_ROUNDS.length
+                      framePool[
+                        room.miniGameRoundIndex % framePool.length
                       ];
                     return (
                       <>
-                        <FrameSceneArtwork artworkId={round.sceneArtworkId} />
+                        <FrameSceneArtwork
+                          artworkId={round.sceneArtworkId}
+                          imageUrl={round.imageUrl}
+                          title={round.prompt}
+                        />
                         <h3 className="text-sm font-black">{round.prompt}</h3>
                         <form
                           onSubmit={(e) => {
@@ -966,6 +1313,14 @@ export default function PlayerControllerPage() {
                     saveRoomToLocalAndBroadcast(cloned);
                     setRoom(cloned);
                   }}
+                  onSkipWord={() => {
+                    const cloned: RoomState = JSON.parse(JSON.stringify(room));
+                    cloned.miniGameRoundIndex =
+                      (cloned.miniGameRoundIndex || 0) + 1;
+                    cloned.liveDrawingDataUrl = "";
+                    saveRoomToLocalAndBroadcast(cloned);
+                    setRoom(cloned);
+                  }}
                 />
               )}
 
@@ -974,9 +1329,10 @@ export default function PlayerControllerPage() {
               room.activeMiniGameId === "MAP_PIN" && (
                 <div className="bg-white border-4 border-black rounded-3xl p-4 shadow-brutal space-y-3">
                   {(() => {
+                    const mapPool = getRegionalMapPinRounds(region);
                     const round =
-                      MAP_PIN_ROUNDS[
-                        room.miniGameRoundIndex % MAP_PIN_ROUNDS.length
+                      mapPool[
+                        room.miniGameRoundIndex % mapPool.length
                       ];
                     return (
                       <>
@@ -1023,10 +1379,11 @@ export default function PlayerControllerPage() {
               room.activeMiniGameId === "SCENE_DESCRIPTION" && (
                 <div className="bg-white border-4 border-black rounded-3xl p-4 shadow-brutal space-y-3">
                   {(() => {
+                    const scenePool = getRegionalSceneDescriptionRounds(region);
                     const round =
-                      SCENE_DESCRIPTION_ROUNDS[
+                      scenePool[
                         room.miniGameRoundIndex %
-                          SCENE_DESCRIPTION_ROUNDS.length
+                          scenePool.length
                       ];
                     return (
                       <>
@@ -1035,6 +1392,8 @@ export default function PlayerControllerPage() {
                         </div>
                         <SceneDescriptionArtwork
                           sceneId={round.sceneArtworkId}
+                          imageUrl={round.imageUrl}
+                          title={round.title}
                         />
                         <form
                           onSubmit={(e) => {
@@ -1066,6 +1425,8 @@ export default function PlayerControllerPage() {
                   })()}
                 </div>
               )}
+              </>
+            )}
           </>
         )}
 
@@ -1128,16 +1489,26 @@ export default function PlayerControllerPage() {
         {room.phase === "LEADERBOARD" && (
           <div className="bg-sunny border-4 border-black rounded-3xl p-6 shadow-brutal text-center space-y-4">
             <Trophy className="w-11 h-11 mx-auto text-black" />
-            <div className="inline-block px-4 py-1 rounded-full text-white font-black text-sm border-2 border-black" style={{ backgroundColor: myTeamInfo.color }}>
+            <div
+              className="inline-block px-4 py-1 rounded-full text-white font-black text-sm border-2 border-black"
+              style={{ backgroundColor: myTeamInfo.color }}
+            >
               {myTeamInfo.name}
             </div>
             <h2 className="text-2xl font-black">
               نقاط فريقك: {myTeamInfo.score}
             </h2>
-            <p className="text-xs font-bold">
-              {room.teams.team1.name}: {room.teams.team1.score} •{" "}
-              {room.teams.team2.name}: {room.teams.team2.score}
-            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-bold pt-2">
+              {activeTeams.map((t, idx) => (
+                <span
+                  key={t.id}
+                  className="px-2.5 py-1 rounded-xl bg-white border-2 border-black"
+                >
+                  <strong style={{ color: t.color }}>{t.name}</strong>: {t.score} نقطة
+                  {idx < activeTeams.length - 1 ? "" : ""}
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </main>
@@ -1159,6 +1530,82 @@ export default function PlayerControllerPage() {
           onSwitchActivePlayer={(p) => setCurrentPlayer(p)}
         />
       </footer>
+
+      {/* Rival Player Freeze Modal */}
+      {showFreezeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white border-4 border-black rounded-3xl p-5 shadow-brutal max-w-sm w-full space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b-2 border-black/10">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-cyan-200 border-2 border-black flex items-center justify-center">
+                  <Snowflake className="w-5 h-5 text-cyan-800" />
+                </div>
+                <h3 className="font-black text-sm text-black">
+                  تجميد لاعب من الفريق المنافس
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFreezeModal(false)}
+                className="text-gray-400 hover:text-black font-black text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs font-bold text-gray-700 leading-relaxed">
+              اختر لاعباً من الفرق المنافسة لتعطيل هاتفه وجرسه في هذا السؤال بالكامل:
+            </p>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {room.players
+                .filter((p) => p.team !== currentPlayer.team)
+                .map((rival) => {
+                  const rivalTeam = room.teams[rival.team];
+                  return (
+                    <button
+                      key={rival.id}
+                      type="button"
+                      onClick={() => handleFreezePlayer(rival.id)}
+                      className="w-full p-2.5 rounded-2xl border-2 border-black bg-cream hover:bg-cyan-50 flex items-center justify-between transition"
+                    >
+                      <div className="flex items-center gap-2">
+                        <CartoonAvatar avatarId={rival.avatar} size="xs" />
+                        <div className="text-right">
+                          <div className="font-black text-xs text-black">
+                            {rival.name}
+                          </div>
+                          <div
+                            className="text-[10px] font-bold"
+                            style={{ color: rivalTeam?.color || "#3B66B4" }}
+                          >
+                            {rivalTeam?.name || rival.team}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-xl bg-cyan-400 text-black border-2 border-black font-black text-[10px]">
+                        🧊 تجميد
+                      </span>
+                    </button>
+                  );
+                })}
+              {room.players.filter((p) => p.team !== currentPlayer.team).length === 0 && (
+                <div className="p-4 text-center text-xs font-bold text-gray-500">
+                  لا يوجد لاعبون في الفرق المنافسة بعد.
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowFreezeModal(false)}
+              className="w-full py-2.5 rounded-xl bg-gray-200 hover:bg-gray-300 text-black font-black text-xs border-2 border-black"
+            >
+              إلغاء
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1255,6 +1702,7 @@ function DrawingChallengeController({
   setTextInput,
   onSubmitGuess,
   onUpdateLiveCanvas,
+  onSkipWord,
 }: {
   room: RoomState;
   currentPlayer: Player;
@@ -1262,6 +1710,7 @@ function DrawingChallengeController({
   setTextInput: (val: string) => void;
   onSubmitGuess: (txt: string) => void;
   onUpdateLiveCanvas: (dataUrl: string) => void;
+  onSkipWord: () => void;
 }) {
   const { region } = useEdition();
   const drawRounds = getRegionalDrawingChallengeRounds(region);
@@ -1276,6 +1725,15 @@ function DrawingChallengeController({
   const [brushSize] = useState(6);
   const [isDrawing, setIsDrawing] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
+  const [sentToast, setSentToast] = useState(false);
+
+  const handleFinishDrawing = () => {
+    if (!canvasRef.current) return;
+    const dataUrl = canvasRef.current.toDataURL();
+    onUpdateLiveCanvas(dataUrl);
+    setSentToast(true);
+    setTimeout(() => setSentToast(false), 3000);
+  };
 
   useEffect(() => {
     if (!isDrawer || !canvasRef.current) return;
@@ -1438,6 +1896,36 @@ function DrawingChallengeController({
             </button>
           </div>
         </div>
+
+        {/* Actions right below canvas */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleFinishDrawing}
+            className="py-3 px-2 rounded-2xl bg-mint text-black font-black text-xs border-3 border-black shadow-brutal-sm flex items-center justify-center gap-1.5 hover:bg-mint/80 transition-all active:scale-95"
+          >
+            <CheckCircle2 className="w-4 h-4 text-black" />
+            <span>✔ خلصت الرسمة (إرسال للجميع)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSkipWord();
+              handleClear();
+            }}
+            className="py-3 px-2 rounded-2xl bg-white text-black font-black text-xs border-3 border-black shadow-brutal-sm flex items-center justify-center gap-1.5 hover:bg-cream transition-all active:scale-95"
+          >
+            <RotateCcw className="w-4 h-4 text-burnt" />
+            <span>🔄 كلمة ثانية / ما عرفت أرسمها</span>
+          </button>
+        </div>
+
+        {sentToast && (
+          <div className="text-center text-xs font-black text-emerald-900 bg-white border-2 border-black rounded-xl py-1.5 shadow-brutal-sm animate-pulse">
+            ✔ تم إرسال الرسمة للجميع بنجاح! 🎨
+          </div>
+        )}
       </div>
     );
   }

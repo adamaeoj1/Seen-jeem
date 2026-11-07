@@ -311,8 +311,10 @@ export const MOROCCAN_SEEN_JEEM_CATEGORIES: MoroccanCategory[] = [
         points: 200,
         slotIndex: 0,
         question:
-          "ما هي المدينة المغربية الواقعة في الأطلس المتوسط وتُلقب بـ «سويسرا المغرب» وتحتضن جامعة الأخوين؟",
-        hint: "تشتهر بتمثال أسد الأطلس الصخري والثلوج شتاءً",
+          "📸 في أي مدينة مغربية جبلية التُقطت هذه الصورة لتمثال أسد الأطلس الصخري وتُلقب بـ «سويسرا المغرب»؟",
+        hint: "تقع في الأطلس المتوسط وتحتضن جامعة الأخوين",
+        imageUrl:
+          "https://images.unsplash.com/photo-1569383746724-6f1b882b8f46?auto=format&fit=crop&w=1000&q=85",
         displayAnswer: "إفران",
         acceptedAnswers: ["إفران", "افران", "مدينة إفران", "مدينة افران", "Ifrane"],
         acceptedSynonyms: ["إفران", "افران", "مدينة إفران", "مدينة افران", "Ifrane"],
@@ -341,8 +343,10 @@ export const MOROCCAN_SEEN_JEEM_CATEGORIES: MoroccanCategory[] = [
         points: 200,
         slotIndex: 0,
         question:
-          "ما هي المدينة المغربية الجبلية الساحرة في شمال المملكة التي تُلقب عالمياً بـ «الجوهرة الزرقاء»؟",
-        hint: "تتميز بأزقتها وجدرانها المطلية بدرجات اللون الأزرق",
+          "📸 في أي مدينة مغربية التُقطت هذه الصورة الساحرة التي تُلقب عالمياً بـ «الجوهرة الزرقاء»؟",
+        hint: "تقع في جبال الريف شمال المملكة",
+        imageUrl:
+          "https://images.unsplash.com/photo-1553899017-90c40dd32533?auto=format&fit=crop&w=1000&q=85",
         displayAnswer: "شفشاون (الشاون)",
         acceptedAnswers: [
           "شفشاون",
@@ -368,8 +372,10 @@ export const MOROCCAN_SEEN_JEEM_CATEGORIES: MoroccanCategory[] = [
         points: 200,
         slotIndex: 1,
         question:
-          "ما هي المدينة المغربية التاريخية الملقبة بـ «المدينة الحمراء» والتي تضم ساحة «جامع الفنا» وصومعة الكتبية؟",
+          "📸 ما هي المدينة المغربية التاريخية الظاهرة في الصورة والملقبة بـ «المدينة الحمراء» وتضم صومعة الكتبية؟",
         hint: "تُعرف أيضاً ببهجة الجنوب وعاصمة النخيل",
+        imageUrl:
+          "https://images.unsplash.com/photo-1597212618440-806262de4f6b?auto=format&fit=crop&w=1000&q=85",
         displayAnswer: "مراكش",
         acceptedAnswers: ["مراكش", "مدينة مراكش", "مراكش الحمراء", "البهجة"],
         acceptedSynonyms: ["مراكش", "مدينة مراكش", "مراكش الحمراء", "البهجة"],
@@ -1552,8 +1558,10 @@ export const MOROCCAN_SEEN_JEEM_CATEGORIES: MoroccanCategory[] = [
         points: 600,
         slotIndex: 5,
         question:
-          "ما اسم الصومعة التاريخية غير المكتملة في الرباط التي شيدها السلطان الموحدي يعقوب المنصور في القرن الثاني عشر؟",
+          "📸 ما اسم هذا المعلم التاريخي والصومعة غير المكتملة في الرباط التي شيدها السلطان الموحدي يعقوب المنصور؟",
         hint: "تتشابه في تصميمها مع الكتبية بمراكش والخيرالدا بإشبيلية",
+        imageUrl:
+          "https://images.unsplash.com/photo-1577147443647-81856d5151af?auto=format&fit=crop&w=1000&q=85",
         displayAnswer: "صومعة حسان",
         acceptedAnswers: ["صومعة حسان", "صومعه حسان", "مسجد حسان", "حسان"],
         acceptedSynonyms: ["صومعة حسان", "صومعه حسان", "مسجد حسان", "حسان"],
@@ -1629,8 +1637,8 @@ export const MOROCCAN_PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     actualPriceDh: 13999,
     currencyLabel: "درهم مغربي (DH)",
     imageUrl:
-      "https://images.unsplash.com/photo-1726828537956-61ae115d7d7a?auto=format&fit=crop&w=900&q=85",
-    illustrationType: "iphone_16_pro",
+      "https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=900&q=85",
+    illustrationType: "iphone_17_pro",
     funFact:
       "يباع iPhone 17 Pro سعة 256GB في عروض Electroplanet المغرب بسعر 13,999 درهم.",
   },
@@ -1645,8 +1653,8 @@ export const MOROCCAN_PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     actualPriceDh: 5999,
     currencyLabel: "درهم مغربي (DH)",
     imageUrl:
-      "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?auto=format&fit=crop&w=900&q=85",
-    illustrationType: "ps5_slim",
+      "https://images.unsplash.com/photo-1578303512597-81e6cc155b3e?auto=format&fit=crop&w=900&q=85",
+    illustrationType: "nintendo_switch_2",
     funFact:
       "يبلغ سعر Nintendo Switch 2 في متاجر Electroplanet بالمغرب 5,999 درهم (سعره الأصلي 6,499 درهم).",
   },

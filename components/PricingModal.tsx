@@ -28,6 +28,10 @@ import {
   useVoucherLicense,
   WHATSAPP_MERCHANT_PHONE,
 } from "@/lib/voucherEngine";
+import {
+  getDeviceFreeGamesRemainingSync,
+  MAX_FREE_HOST_GAMES,
+} from "@/lib/deviceFingerprint";
 
 interface PricingModalProps {
   isOpen: boolean;
@@ -183,7 +187,7 @@ export function PricingModal({
             <div>
               <h2 className="text-xl md:text-2xl font-black">
                 {paywallTriggered
-                  ? `انتهت جلستك المجانية — افتح ${edition.partyTerm} الآن!`
+                  ? "لقد استهلكت جلستيك المجانيتين كمضيف (2/2) — فعّل تذكرة الگلسة (25 DH) أو اشتراك المضيف المحترف للمتابعة!"
                   : `باقات وتذاكر ${edition.partyTerm} (${edition.currencyLabel})`}
               </h2>
               <p className="text-sunny text-xs font-bold mt-0.5">
@@ -203,6 +207,17 @@ export function PricingModal({
         </div>
 
         <div className="p-6 space-y-6 max-h-[84vh] overflow-y-auto">
+          {paywallTriggered && (
+            <div className="bg-coral text-white border-4 border-black rounded-2xl p-4 shadow-brutal flex items-center justify-between gap-3">
+              <div className="text-xs md:text-sm font-black leading-relaxed">
+                🔒 لقد استهلكت جلستيك المجانيتين كمضيف (2/2) — فعّل تذكرة الگلسة (25 DH) أو اشتراك المضيف المحترف للمتابعة!
+              </div>
+              <span className="px-3 py-1 rounded-xl bg-black text-sunny font-mono text-xs font-black shrink-0">
+                2 / 2 مستهلكة
+              </span>
+            </div>
+          )}
+
           {/* ================================================================
               PROMINENT VOUCHER REDEMPTION BAR AT TOP OF PRICING MODAL
           ================================================================ */}
@@ -358,53 +373,60 @@ export function PricingModal({
           ================================================================ */}
           {!showPaymentSheet ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
-              {/* 1. Free Session (مجاناً) */}
+              {/* 1. Free Trial (التجربة المجانية — 2 Free Host Games) */}
               <div className="bg-white rounded-3xl border-4 border-black p-5 shadow-brutal flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="px-2.5 py-1 rounded-full bg-cream border-2 border-black text-xs font-black">
-                      الباقة الترحيبية
+                      التجربة المجانية
                     </span>
                     <Gift className="w-6 h-6 text-royal shrink-0" />
                   </div>
-                  <h3 className="text-xl font-black">الجلسة المجانية</h3>
+                  <h3 className="text-xl font-black">الباقة المجانية</h3>
                   <div className="my-4 flex items-baseline gap-1.5">
                     <span className="text-3xl font-black">مجاناً</span>
                     <span className="text-xs font-bold text-gray-600">
-                      / جلسة واحدة كاملة
+                      / جلستان كمضيف (2)
                     </span>
                   </div>
                   <ul className="space-y-2.5 text-xs font-bold text-gray-700 mb-5">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-mint shrink-0" />
-                      <span>جلسة لعب كاملة ({edition.gatheringPhrase})</span>
+                      <span>جلستان مجانيتان (2) كمضيف</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-mint shrink-0" />
                       <span>
-                        دخول مجاني لجميع اللاعبين {edition.deviceTerm}
+                        دخول مجاني غير محدود كلاعب في غرف أصدقائك
                       </span>
                     </li>
                   </ul>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={subscription.freeSessionsRemaining <= 0}
-                  onClick={() => handleOpenPaymentSheet("FREE_TRIAL")}
-                  className={`w-full py-3 rounded-xl font-black text-xs border-2 border-black ${
-                    subscription.freeSessionsRemaining > 0
-                      ? "bg-cream hover:bg-sunny text-black shadow-brutal-sm"
-                      : "bg-gray-200 text-gray-500 cursor-not-allowed"
-                  }`}
-                >
-                  {subscription.freeSessionsRemaining > 0
-                    ? `متبقي (${subscription.freeSessionsRemaining}) جلسة مجانية`
-                    : "تم استنفاذ الجلسة المجانية"}
-                </button>
+                {(() => {
+                  const effectiveRemaining = getDeviceFreeGamesRemainingSync(
+                    subscription.freeSessionsRemaining
+                  );
+                  return (
+                    <button
+                      type="button"
+                      disabled={effectiveRemaining <= 0}
+                      onClick={() => handleOpenPaymentSheet("FREE_TRIAL")}
+                      className={`w-full py-3 rounded-xl font-black text-xs border-2 border-black ${
+                        effectiveRemaining > 0
+                          ? "bg-cream hover:bg-sunny text-black shadow-brutal-sm"
+                          : "bg-gray-200 text-gray-500 cursor-not-allowed"
+                      }`}
+                    >
+                      {effectiveRemaining > 0
+                        ? `متبقي (${effectiveRemaining}/${MAX_FREE_HOST_GAMES}) جلسات مجانية كمضيف`
+                        : "تم استهلاك الجلستين المجانيتين (2/2)"}
+                    </button>
+                  );
+                })()}
               </div>
 
-              {/* 2. 24h Party Pass (25 DH in MA) */}
+              {/* 2. 24h Party Pass (25 DH in MA / $2.99) */}
               <div className="bg-sunny rounded-3xl border-4 border-black p-5 shadow-brutal-lg flex flex-col justify-between relative">
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-burnt text-white px-3.5 py-0.5 rounded-full border-2 border-black text-[11px] font-black whitespace-nowrap">
                   الأكثر اختياراً • {edition.gatheringPhrase} 🔥
@@ -413,7 +435,7 @@ export function PricingModal({
                 <div>
                   <div className="flex items-center justify-between mb-3 mt-1">
                     <span className="px-2.5 py-1 rounded-full bg-white border-2 border-black text-xs font-black">
-                      ٢٤ ساعة مفتوحة
+                      24 ساعة مفتوحة
                     </span>
                     <Ticket className="w-6 h-6 text-black shrink-0" />
                   </div>
@@ -423,21 +445,23 @@ export function PricingModal({
                       {partyPassPriceDisplay}
                     </span>
                     <span className="text-xs font-black">
-                      / ٢٤ ساعة • {edition.currencyLabel}
+                      / 24 ساعة • {edition.currencyLabel}
                     </span>
                   </div>
                   <ul className="space-y-2.5 text-xs font-bold text-black mb-5">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 shrink-0" />
-                      <span>جلسات غير محدودة لمدة ٢٤ ساعة</span>
+                      <span>جلسات لعب غير محدودة لمدة 24 ساعة</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 shrink-0" />
-                      <span>جميع تصنيفات لوحة قَدْهَا؟ والتحديات الثمانية</span>
+                      <span>فتح جميع الفئات والتحديات الثمانية</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 shrink-0" />
-                      <span>دفعة واحدة بدون تجديد تلقائي</span>
+                      <span>
+                        شراء فوري لكود التفعيل عبر واتساب (CIH / Cash Plus)
+                      </span>
                     </li>
                   </ul>
                 </div>
@@ -453,16 +477,16 @@ export function PricingModal({
                 </button>
               </div>
 
-              {/* 3. Monthly Pro Host (70 DH in MA — Fixed Flex Alignment & Single-Line Text) */}
+              {/* 3. Monthly Pro Host (70 DH in MA / $7.99 — Exclusive Pro Perks) */}
               <div className="bg-royal text-white rounded-3xl border-4 border-black p-5 shadow-brutal flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="px-2.5 py-1 rounded-full bg-sunny text-black border-2 border-black text-xs font-black">
-                      شامل صانع الأسئلة 👑
+                      مزايا PRO الحصرية 👑
                     </span>
                     <Crown className="w-6 h-6 text-sunny shrink-0" />
                   </div>
-                  <h3 className="text-xl font-black">المضيف المحترف</h3>
+                  <h3 className="text-xl font-black">المضيف المحترف PRO</h3>
                   <div className="my-4 flex items-baseline gap-1.5">
                     <span className="text-3xl font-black text-sunny" dir="ltr">
                       {proHostPriceDisplay}
@@ -472,22 +496,32 @@ export function PricingModal({
                     </span>
                   </div>
                   <ul className="space-y-2.5 text-xs font-bold text-cream mb-5">
-                    <li className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-sunny shrink-0" />
-                      <span className="whitespace-nowrap">
-                        جلسات لعب لا محدودة طوال الشهر
+                    <li className="flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-sunny shrink-0 mt-0.5" />
+                      <span>👑 جلسات غير محدودة طوال 30 يوماً لجميع الأنماط</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-sunny shrink-0 mt-0.5" />
+                      <span>
+                        🤖 مولّد الفئات بالذكاء الاصطناعي في 5 ثوانٍ
                       </span>
                     </li>
-                    <li className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-sunny shrink-0" />
-                      <span className="whitespace-nowrap">
-                        صانع الأسئلة والفئات المخصصة
+                    <li className="flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-sunny shrink-0 mt-0.5" />
+                      <span>
+                        📸 فئة «أسرار الشلة» بالصور الخاصة والمواقف المضحكة
                       </span>
                     </li>
-                    <li className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-sunny shrink-0" />
-                      <span className="whitespace-nowrap">
-                        جميع الحزم الحصرية بدون إعلانات
+                    <li className="flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-sunny shrink-0 mt-0.5" />
+                      <span>
+                        👥 دعم 3 إلى 4 فرق للمجموعات الكبيرة والمقاهي
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-sunny shrink-0 mt-0.5" />
+                      <span>
+                        🎯 كود غرفة مخصص باسمك (مثل: ADAM أو KASSARA) ولوحة صدارة دائمة
                       </span>
                     </li>
                   </ul>
@@ -498,7 +532,7 @@ export function PricingModal({
                   onClick={() => handleOpenPaymentSheet("PRO_HOST")}
                   className="w-full py-3 rounded-xl bg-sunny hover:brightness-105 text-black font-black text-xs border-2 border-black shadow-brutal-sm transition"
                 >
-                  اشترك الآن
+                  اشترك الآن في PRO
                 </button>
               </div>
             </div>

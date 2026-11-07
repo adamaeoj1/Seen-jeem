@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  createInitialPowerCards,
   createInitialRoomState,
   Player,
   PlayerSubmission,
   RoomState,
   sanitizeRoomPlayers,
+  TeamId,
 } from "@/lib/gameEngine";
-import { isDefaultTeamName } from "@/lib/editionManager";
+import { isDefaultTeamName } from "@/lib/editionConstants";
 
 // ذاكرة سيرفر مشتركة كطبقة حماية فورية لضمان عدم حدوث خطأ 500 أبداً
 const globalForRooms = globalThis as unknown as {
@@ -38,6 +40,10 @@ function createCleanDefaultRoom(
   base.players = []; // صفر بوتات نهائياً عند إنشاء أي غرفة جديدة
   base.teamA = { name: team1Default, score: 0 };
   base.teamB = { name: team2Default, score: 0 };
+  base.powerCards = createInitialPowerCards(2);
+  base.frozenPlayerIds = [];
+  base.activeWager = null;
+  base.stealState = null;
   base.updatedAt = Date.now();
   return base;
 }
@@ -72,6 +78,14 @@ function syncTeamAliases(room: RoomState): RoomState {
   room.teamA = { name: t1Name, score: t1Score };
   room.teamB = { name: t2Name, score: t2Score };
   room.players = sanitizeRoomPlayers(room.players);
+
+  if (!room.powerCards) {
+    room.powerCards = createInitialPowerCards(room.teamCount || 2);
+  }
+  if (!room.frozenPlayerIds) {
+    room.frozenPlayerIds = [];
+  }
+
   return room;
 }
 
@@ -129,10 +143,83 @@ export async function POST(
     // 2. دمج ذكي عند إرسال إجابة من الجوال فقط دون المساس بأسماء الفرق أو الإعدادات
     const isPlayerSubmitOnly =
       body?.action === "SUBMIT_ANSWER" && body?.submission;
+    // 3. إنهاء الجلسة وإخراج الجميع
+    const isCloseRoom = body?.action === "CLOSE_ROOM" || body?.status === "ROOM_CLOSED";
+    // 4. إجراءات بطاقات الغدر والحماس
+    const isFreezePlayer = body?.action === "FREEZE_PLAYER";
+    const isClaimSteal = body?.action === "CLAIM_STEAL";
+    const isActivateWager = body?.action === "ACTIVATE_WAGER";
 
     let updatedRoom: RoomState;
 
-    if (isPlayerJoinOnly) {
+    if (isCloseRoom) {
+      updatedRoom = syncTeamAliases({
+        ...existing,
+        status: "ROOM_CLOSED",
+        phase: "LEADERBOARD",
+        updatedAt: Date.now(),
+      });
+    } else if (isFreezePlayer) {
+      const targetId = String(body.targetPlayerId || "");
+      const usingTeam = (body.teamId as TeamId) || "team1";
+      const cards = {
+        ...(existing.powerCards ||
+          createInitialPowerCards(existing.teamCount || 2)),
+      };
+      if (cards[usingTeam]) cards[usingTeam].freeze = false;
+      updatedRoom = syncTeamAliases({
+        ...existing,
+        frozenPlayerIds: targetId ? [targetId] : [],
+        powerCards: cards,
+        updatedAt: Date.now(),
+      });
+    } else if (isClaimSteal) {
+      const usingTeam = (body.teamId as TeamId) || "team2";
+      const playerId = String(body.playerId || "");
+      const playerName = String(body.playerName || "الخصم");
+      const cards = {
+        ...(existing.powerCards ||
+          createInitialPowerCards(existing.teamCount || 2)),
+      };
+      if (cards[usingTeam]) cards[usingTeam].steal = false;
+      const teamName = existing.teams[usingTeam]?.name || "فريق الخصم";
+      updatedRoom = syncTeamAliases({
+        ...existing,
+        powerCards: cards,
+        phase: "PLAYING",
+        activeTeamTurn: usingTeam,
+        stealState: {
+          questionId: existing.activeQuestionId || "",
+          endsAt: Date.now() + 10000,
+          stolenByTeam: usingTeam,
+          stolenByPlayerId: playerId,
+          stolenByPlayerName: playerName,
+          originalPoints: body.points || 200,
+        },
+        roundStartedAt: Date.now(),
+        roundDurationSec: 10,
+        roundSummaryText: `⚡ خطف السؤال! ${teamName} خطف السؤال ولديه 10 ثوانٍ للإجابة!`,
+        updatedAt: Date.now(),
+      });
+    } else if (isActivateWager) {
+      const usingTeam = (body.teamId as TeamId) || existing.activeTeamTurn || "team1";
+      const amount = Number(body.amount) || 600;
+      const cards = {
+        ...(existing.powerCards ||
+          createInitialPowerCards(existing.teamCount || 2)),
+      };
+      if (cards[usingTeam]) cards[usingTeam].qammar = false;
+      updatedRoom = syncTeamAliases({
+        ...existing,
+        powerCards: cards,
+        activeWager: {
+          teamId: usingTeam,
+          amount,
+          isAllIn: Boolean(body.isAllIn),
+        },
+        updatedAt: Date.now(),
+      });
+    } else if (isPlayerJoinOnly) {
       const incomingPlayer = body.player as Player;
       const filteredPlayers = sanitizeRoomPlayers(existing.players).filter(
         (p) => p.id !== incomingPlayer.id && p.name !== incomingPlayer.name
@@ -200,7 +287,8 @@ export async function POST(
         existing.teams?.team2?.score ??
         0;
 
-      const mergedTeams = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mergedTeams: any = {
         team1: {
           ...existing.teams.team1,
           ...(body?.teams?.team1 || {}),
@@ -217,6 +305,42 @@ export async function POST(
         },
       };
 
+      if (
+        body?.teams?.team3 ||
+        existing.teams?.team3 ||
+        (body?.teamCount && body.teamCount >= 3)
+      ) {
+        mergedTeams.team3 = {
+          ...(existing.teams?.team3 || {
+            id: "team3" as const,
+            name: body?.settings?.team3Name || "فرسان البوغاز",
+            color: body?.settings?.team3Color || "#10B981",
+            score: 0,
+            doublePointsRemaining: 1,
+          }),
+          ...(body?.teams?.team3 || {}),
+          id: "team3" as const,
+        };
+      }
+
+      if (
+        body?.teams?.team4 ||
+        existing.teams?.team4 ||
+        (body?.teamCount && body.teamCount >= 4)
+      ) {
+        mergedTeams.team4 = {
+          ...(existing.teams?.team4 || {
+            id: "team4" as const,
+            name: body?.settings?.team4Name || "صقور الصحراء",
+            color: body?.settings?.team4Color || "#8B5CF6",
+            score: 0,
+            doublePointsRemaining: 1,
+          }),
+          ...(body?.teams?.team4 || {}),
+          id: "team4" as const,
+        };
+      }
+
       const mergedSettings = {
         ...existing.settings,
         ...(body?.settings || {}),
@@ -232,11 +356,29 @@ export async function POST(
         ...existing,
         ...body,
         code,
+        status: body?.status || existing.status || "ACTIVE",
         edition: body?.edition || existing.edition || "MA",
         boardSize: body?.boardSize || existing.boardSize || 18,
         answeringMode: body?.answeringMode || existing.answeringMode || "TYPING",
+        teamCount: body?.teamCount || existing.teamCount || 2,
         teams: mergedTeams,
         settings: mergedSettings,
+        powerCards:
+          body?.powerCards ||
+          existing.powerCards ||
+          createInitialPowerCards(body?.teamCount || existing.teamCount || 2),
+        frozenPlayerIds:
+          body?.frozenPlayerIds !== undefined
+            ? body.frozenPlayerIds
+            : existing.frozenPlayerIds || [],
+        activeWager:
+          body?.activeWager !== undefined
+            ? body.activeWager
+            : existing.activeWager || null,
+        stealState:
+          body?.stealState !== undefined
+            ? body.stealState
+            : existing.stealState || null,
         teamA: {
           name: resolvedT1Name,
           score: resolvedT1Score,

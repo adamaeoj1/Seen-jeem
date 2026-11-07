@@ -2,12 +2,15 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Bot,
+  Camera,
   Check,
   Download,
   Edit3,
   FileEdit,
   FolderPlus,
   Layers,
+  Loader2,
   Plus,
   RotateCcw,
   Save,
@@ -25,6 +28,9 @@ import {
 } from "@/data/seedQuestions";
 import { MINI_GAMES_META } from "@/lib/gameEngine";
 import { MOROCCAN_SEEN_JEEM_CATEGORIES } from "@/data/moroccanSeedQuestions";
+import { ENGLISH_SEEN_JEEM_CATEGORIES } from "@/data/englishSeedQuestions";
+import { EditionFlagIcon } from "@/components/QadhaLogo";
+import { compressImageFile } from "@/lib/imageCompressor";
 import {
   addCustomStudioCategory,
   addCustomStudioMiniGameQuestion,
@@ -50,7 +56,7 @@ export interface QuestionStudioModalProps {
   onClose: () => void;
   onSaveCategory?: (cat: SeenJeemCategory) => void;
   onBankUpdated?: () => void;
-  initialTab?: "BROWSE_EDIT" | "ADD_QUESTION" | "NEW_CATEGORY";
+  initialTab?: "BROWSE_EDIT" | "ADD_QUESTION" | "NEW_CATEGORY" | "AI_GENERATOR";
 }
 
 type StudioModeFilter = "BOARD" | MiniGameId;
@@ -66,7 +72,7 @@ export function QuestionStudioModal({
   const [selectedEdition, setSelectedEdition] = useState<EditionRegion>(region);
   const [selectedMode, setSelectedMode] = useState<StudioModeFilter>("BOARD");
   const [activeTab, setActiveTab] = useState<
-    "BROWSE_EDIT" | "ADD_QUESTION" | "NEW_CATEGORY"
+    "BROWSE_EDIT" | "ADD_QUESTION" | "NEW_CATEGORY" | "AI_GENERATOR"
   >(initialTab);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(
     "cat-ma-football"
@@ -74,6 +80,14 @@ export function QuestionStudioModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [refreshTick, setRefreshTick] = useState(0);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // AI Generator state
+  const [aiTopicInput, setAiTopicInput] = useState("");
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiStatusMsg, setAiStatusMsg] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
   // Inline Editing State for Board Questions
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(
@@ -85,6 +99,7 @@ export function QuestionStudioModal({
   const [editHintText, setEditHintText] = useState("");
   const [editPoints, setEditPoints] = useState<200 | 400 | 600>(200);
   const [editFunFact, setEditFunFact] = useState("");
+  const [editImageUrl, setEditImageUrl] = useState("");
 
   // Add New Question to Existing Category State
   const [newQPoints, setNewQPoints] = useState<200 | 400 | 600>(200);
@@ -93,6 +108,7 @@ export function QuestionStudioModal({
   const [newQSynonyms, setNewQSynonyms] = useState("");
   const [newQHint, setNewQHint] = useState("");
   const [newQFunFact, setNewQFunFact] = useState("");
+  const [newQImageUrl, setNewQImageUrl] = useState("");
 
   // Add Mini-Game Question State
   const [mgQuestionText, setMgQuestionText] = useState("");
@@ -144,11 +160,16 @@ export function QuestionStudioModal({
   }, [region]);
 
   const rawRegionalCategories =
-    selectedEdition === "MA"
+    selectedEdition === "EN"
+      ? ENGLISH_SEEN_JEEM_CATEGORIES
+      : selectedEdition === "MA"
       ? MOROCCAN_SEEN_JEEM_CATEGORIES
       : SEEN_JEEM_CATEGORIES;
 
-  const mergedCategories = applyQuestionBankOverrides(rawRegionalCategories);
+  const mergedCategories = applyQuestionBankOverrides(
+    rawRegionalCategories,
+    selectedEdition
+  );
 
   useEffect(() => {
     if (
@@ -193,6 +214,7 @@ export function QuestionStudioModal({
     setEditHintText(q.hint || "");
     setEditPoints(q.points);
     setEditFunFact(q.funFact || "");
+    setEditImageUrl(q.imageUrl || "");
   };
 
   const handleSaveInlineEdit = (q: SeenJeemQuestion) => {
@@ -214,6 +236,7 @@ export function QuestionStudioModal({
       hint: editHintText.trim() || undefined,
       points: editPoints,
       funFact: editFunFact.trim() || q.funFact,
+      imageUrl: editImageUrl.trim() || undefined,
     });
 
     setEditingQuestionId(null);
@@ -251,6 +274,7 @@ export function QuestionStudioModal({
       rejectedTraps: [],
       hint: newQHint.trim() || undefined,
       funFact: newQFunFact.trim() || "سؤال مخصص من استوديو قَدْهَا؟",
+      imageUrl: newQImageUrl.trim() || undefined,
     });
 
     setNewQText("");
@@ -258,6 +282,7 @@ export function QuestionStudioModal({
     setNewQSynonyms("");
     setNewQHint("");
     setNewQFunFact("");
+    setNewQImageUrl("");
     setActiveTab("BROWSE_EDIT");
     setRefreshTick((t) => t + 1);
     onBankUpdated?.();
@@ -413,6 +438,67 @@ export function QuestionStudioModal({
     e.target.value = "";
   };
 
+  const handleStudioGenerateAiCategory = async (overrideTopic?: string) => {
+    const targetTopic = (overrideTopic || aiTopicInput).trim();
+    if (!targetTopic) return;
+    setIsGeneratingAi(true);
+    setAiStatusMsg(null);
+    try {
+      const res = await fetch("/api/generate-category", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: targetTopic, edition: selectedEdition }),
+      });
+      const data = await res.json();
+      if (data.ok && data.category) {
+        addCustomStudioCategory(data.category);
+        await saveCustomPackToDb(data.category);
+        onSaveCategory?.(data.category);
+        onBankUpdated?.();
+        setSelectedCategoryId(data.category.id);
+        setRefreshTick((t) => t + 1);
+        setAiStatusMsg({
+          ok: true,
+          text: `تم توليد الفئة «${data.category.title}» بنجاح! ⚡`,
+        });
+        setAiTopicInput("");
+        showToast(`✔ تم توليد الفئة «${data.category.title}» بنجاح!`);
+      } else {
+        setAiStatusMsg({
+          ok: false,
+          text: data.error || "تعذر توليد الفئة، حاول مجدداً",
+        });
+      }
+    } catch {
+      setAiStatusMsg({
+        ok: false,
+        text: "حدث خطأ أثناء الاتصال بالمولّد الذكي",
+      });
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  };
+
+  const handleUploadPhotoForQuestion = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    target: "INLINE_EDIT" | "NEW_QUESTION"
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file, 720, 0.72);
+      if (target === "INLINE_EDIT") {
+        setEditImageUrl(compressed);
+      } else {
+        setNewQImageUrl(compressed);
+      }
+      showToast("✔ تم ضغط ورفع الصورة بنجاح!");
+    } catch (err) {
+      console.error("Photo compression error:", err);
+      showToast("⚠️ تعذر معالجة الصورة");
+    }
+  };
+
   const handleResetDefaults = () => {
     resetQuestionBankOverrides();
     resetSeenQuestionsHistory();
@@ -530,24 +616,38 @@ export function QuestionStudioModal({
               <button
                 type="button"
                 onClick={() => setSelectedEdition("MA")}
-                className={`px-3 py-1 rounded-lg text-xs font-black transition ${
+                className={`px-3 py-1 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
                   selectedEdition === "MA"
                     ? "bg-sunny text-black border border-black"
                     : "text-gray-700"
                 }`}
               >
-                🇲🇦 النسخة المغربية
+                <EditionFlagIcon edition="MA" className="w-4 h-3" />
+                <span>النسخة المغربية</span>
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedEdition("MENA")}
-                className={`px-3 py-1 rounded-lg text-xs font-black transition ${
+                className={`px-3 py-1 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
                   selectedEdition === "MENA"
                     ? "bg-royal text-white border border-black"
                     : "text-gray-700"
                 }`}
               >
-                🌍 النسخة العالمية
+                <EditionFlagIcon edition="MENA" className="w-4 h-3" />
+                <span>النسخة العربية</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedEdition("EN")}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
+                  selectedEdition === "EN"
+                    ? "bg-mint text-black border border-black"
+                    : "text-gray-700"
+                }`}
+              >
+                <EditionFlagIcon edition="EN" className="w-4 h-3" />
+                <span>English Edition</span>
               </button>
             </div>
 
@@ -609,6 +709,22 @@ export function QuestionStudioModal({
             >
               <FolderPlus className="w-3.5 h-3.5" />
               <span>+ فئة مخصصة كاملة</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMode("BOARD");
+                setActiveTab("AI_GENERATOR");
+              }}
+              className={`px-3.5 py-1.5 rounded-xl border-2 border-black text-xs font-black flex items-center gap-1.5 transition ${
+                activeTab === "AI_GENERATOR"
+                  ? "bg-burnt text-white shadow-brutal-sm"
+                  : "bg-cream text-black hover:bg-burnt/20"
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span>🤖 مولّد الفئات بالذكاء الاصطناعي (PRO)</span>
             </button>
           </div>
         </div>
@@ -831,6 +947,32 @@ export function QuestionStudioModal({
                                 onChange={(e) => setEditFunFact(e.target.value)}
                                 className="w-full px-3 py-2 rounded-xl border-2 border-black bg-white font-bold text-xs"
                               />
+                            </div>
+
+                            <div className="md:col-span-2 space-y-1.5">
+                              <label className="block text-[11px] font-black">
+                                🖼️ صورة السؤال (اختياري — لعرض سؤال مصوّر على الشاشة):
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  dir="ltr"
+                                  value={editImageUrl}
+                                  onChange={(e) => setEditImageUrl(e.target.value)}
+                                  placeholder="https://... أو ارفع صورة مباشرة من جهازك"
+                                  className="flex-1 px-3 py-2 rounded-xl border-2 border-black bg-white font-mono text-xs"
+                                />
+                                <label className="cursor-pointer px-3 py-2 rounded-xl bg-sunny hover:bg-yellow-400 border-2 border-black font-black text-xs shadow-brutal-sm flex items-center gap-1.5 shrink-0 transition">
+                                  <Camera className="w-3.5 h-3.5" />
+                                  <span>رفع صورة 📸</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => handleUploadPhotoForQuestion(e, "INLINE_EDIT")}
+                                  />
+                                </label>
+                              </div>
                             </div>
                           </div>
 
@@ -1095,6 +1237,32 @@ export function QuestionStudioModal({
                     placeholder="تظهر على الشاشة بعد كشف الجواب..."
                     className="w-full px-3.5 py-2.5 rounded-xl border-2 border-black bg-cream font-bold text-xs"
                   />
+                </div>
+
+                <div className="md:col-span-2 space-y-1.5">
+                  <label className="block text-xs font-black">
+                    🖼️ صورة السؤال (اختياري — إضافة أسئلة بصورك الخاصة):
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={newQImageUrl}
+                      onChange={(e) => setNewQImageUrl(e.target.value)}
+                      placeholder="https://... أو ارفع صورة مباشرة من جهازك"
+                      className="flex-1 px-3.5 py-2.5 rounded-xl border-2 border-black bg-cream font-mono text-xs"
+                    />
+                    <label className="cursor-pointer px-3.5 py-2.5 rounded-xl bg-sunny hover:bg-yellow-400 border-2 border-black font-black text-xs shadow-brutal-sm flex items-center gap-1.5 shrink-0 transition">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>رفع صورة 📸</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleUploadPhotoForQuestion(e, "NEW_QUESTION")}
+                      />
+                    </label>
+                  </div>
                 </div>
               </div>
 
@@ -1392,6 +1560,117 @@ export function QuestionStudioModal({
                 </button>
               </div>
             </form>
+          )}
+
+          {/* ================================================================
+              TAB 4: 5-SECOND AI CATEGORY GENERATOR (PRO EXCLUSIVE)
+          ================================================================ */}
+          {activeTab === "AI_GENERATOR" && (
+            <div className="bg-white border-3 border-black rounded-3xl p-6 shadow-brutal space-y-5">
+              <div className="flex items-center gap-3 border-b-2 border-black/10 pb-3">
+                <div className="w-10 h-10 rounded-2xl bg-black text-sunny flex items-center justify-center">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black">
+                    مولّد الفئات الذكي في 5 ثوانٍ — بالذكاء الاصطناعي ⚡
+                  </h3>
+                  <p className="text-xs font-bold text-gray-600">
+                    أدخل أي موضوع وسيقوم الذكاء الاصطناعي بتوليد 6 أسئلة فورية مع الإجابات والبدائل والتلميحات وحفظها تلقائياً!
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick suggestion chips */}
+              <div className="space-y-2">
+                <label className="block text-xs font-black">اقتراحات مواضيع شائعة:</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {[
+                    "كرة القدم والمنتخب المغربي 🇲🇦",
+                    "أنمي ون بيس وناروتو ⚔️",
+                    "أفلام هوليوود والسينما 🎬",
+                    "أغاني الراب والبوب 🎵",
+                    "أكلات وطبخات شعبية 🍲",
+                    "تاريخ الأندلس والمغرب 🏰",
+                    "ألعاب الفيديو والگيمنغ 🎮",
+                    "مسلسلات رمضان الشهيرة 📺",
+                  ].map((sug) => (
+                    <button
+                      key={sug}
+                      type="button"
+                      disabled={isGeneratingAi}
+                      onClick={() => {
+                        setAiTopicInput(sug);
+                        handleStudioGenerateAiCategory(sug);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-cream hover:bg-sunny border-2 border-black text-xs font-black transition"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-black">
+                  اكتب الموضوع المخصص الذي تريده:
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={aiTopicInput}
+                    onChange={(e) => setAiTopicInput(e.target.value)}
+                    placeholder="مثال: غرائب التاريخ، مارفل، سيارات وسرعة..."
+                    disabled={isGeneratingAi}
+                    className="flex-1 px-4 py-2.5 rounded-xl border-2 border-black bg-cream font-black text-sm placeholder:text-gray-400"
+                  />
+                  <button
+                    type="button"
+                    disabled={isGeneratingAi || !aiTopicInput.trim()}
+                    onClick={() => handleStudioGenerateAiCategory()}
+                    className="px-6 py-2.5 rounded-xl bg-black hover:bg-neutral-800 text-sunny font-black text-xs border-2 border-black shadow-brutal-sm flex items-center justify-center gap-2 disabled:opacity-50 transition"
+                  >
+                    {isGeneratingAi ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>جاري التوليد (5 ثوانٍ)...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 text-sunny" />
+                        <span>توليد الفئة الآن ⚡</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {aiStatusMsg && (
+                <div
+                  className={`p-4 rounded-2xl border-2 border-black text-xs font-black flex items-center justify-between gap-2 ${
+                    aiStatusMsg.ok ? "bg-mint text-black" : "bg-coral text-black"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {aiStatusMsg.ok ? (
+                      <Check className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <span>⚠️</span>
+                    )}
+                    <span>{aiStatusMsg.text}</span>
+                  </div>
+                  {aiStatusMsg.ok && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("BROWSE_EDIT")}
+                      className="px-3 py-1 rounded-xl bg-black text-white text-[11px] font-black"
+                    >
+                      معاينة وتعديل الأسئلة المولّدة ←
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

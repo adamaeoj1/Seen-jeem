@@ -1,146 +1,19 @@
 "use client";
 
 import React from "react";
-import {
-  isMoroccanAvatarString,
-  MOROCCAN_AVATAR_CHARACTERS,
-  MoroccanAvatar,
-  MoroccanAvatarCharacterId,
-  normalizeMoroccanAvatarId,
-} from "@/components/MoroccanAvatars";
+import { MoroccanAvatar } from "@/components/MoroccanAvatars";
 import { EditionRegion, useEdition } from "@/lib/editionManager";
 
-export type MenaAvatarCharacterId =
-  | "abu_sultan"
-  | "nourah_pop"
-  | "faisal_gamer"
-  | "reem_artist"
-  | "ammo_hamad"
-  | "sara_spark"
-  | "aziz_shabab"
-  | "lama_queen";
-
-export type AvatarCharacterId =
-  | MenaAvatarCharacterId
-  | MoroccanAvatarCharacterId;
-
-export interface AvatarCharacterMeta {
-  id: AvatarCharacterId;
-  nameAr: string;
-  vibeAr: string;
-  bgColor: string;
-}
-
-export const AVATAR_CHARACTERS: AvatarCharacterMeta[] = [
-  {
-    id: "abu_sultan",
-    nameAr: "أبو سلطان",
-    vibeAr: "غترة ونظارة شمسية",
-    bgColor: "#F4D03F",
-  },
-  {
-    id: "nourah_pop",
-    nameAr: "نورة",
-    vibeAr: "نظارة دائرية وذكاء حاد",
-    bgColor: "#DE7A7A",
-  },
-  {
-    id: "faisal_gamer",
-    nameAr: "فيصل",
-    vibeAr: "سماعة محترفين وسرعة",
-    bgColor: "#3B66B4",
-  },
-  {
-    id: "reem_artist",
-    nameAr: "ريم",
-    vibeAr: "قبعة فنانة وإبداع",
-    bgColor: "#2ECC71",
-  },
-  {
-    id: "ammo_hamad",
-    nameAr: "عمو حمد",
-    vibeAr: "شنب هيبة وخبرة تاريخية",
-    bgColor: "#E65C2E",
-  },
-  {
-    id: "sara_spark",
-    nameAr: "سارة",
-    vibeAr: "بديهة خاطفة وتركيز",
-    bgColor: "#F4D03F",
-  },
-  {
-    id: "aziz_shabab",
-    nameAr: "عزوز",
-    vibeAr: "كاب مقلوب وروح مرحة",
-    bgColor: "#60A5FA",
-  },
-  {
-    id: "lama_queen",
-    nameAr: "لمى",
-    vibeAr: "تاج الصدارة وثقة",
-    bgColor: "#F472B6",
-  },
-];
-
-export const MOROCCAN_AVATAR_CHARACTER_LIST: AvatarCharacterMeta[] =
-  MOROCCAN_AVATAR_CHARACTERS.map((m) => ({
-    id: m.id,
-    nameAr: m.nameAr,
-    vibeAr: m.taglineAr,
-    bgColor: m.bgColor,
-  }));
-
-export function getRegionalAvatarCharacters(
-  region: EditionRegion
-): AvatarCharacterMeta[] {
-  return region === "MA" ? MOROCCAN_AVATAR_CHARACTER_LIST : AVATAR_CHARACTERS;
-}
-
-const MOROCCAN_TO_MENA_MAP: Record<
-  MoroccanAvatarCharacterId,
-  MenaAvatarCharacterId
-> = {
-  ma_tarbouche: "abu_sultan",
-  ma_jellaba: "sara_spark",
-  ma_atlas_lion: "aziz_shabab",
-  ma_curly_youth: "lama_queen",
-  ma_caftan_zellige: "nourah_pop",
-  ma_street_gamer: "faisal_gamer",
-  ma_amazigh_style: "reem_artist",
-  ma_atay_master: "ammo_hamad",
-};
-
-export function normalizeMenaAvatarId(raw?: string): MenaAvatarCharacterId {
-  if (!raw) return "abu_sultan";
-  const valid = AVATAR_CHARACTERS.find((c) => c.id === raw);
-  if (valid) return valid.id as MenaAvatarCharacterId;
-  if (raw in MOROCCAN_TO_MENA_MAP) {
-    return MOROCCAN_TO_MENA_MAP[raw as MoroccanAvatarCharacterId];
-  }
-  let hash = 0;
-  for (let i = 0; i < raw.length; i++) {
-    hash = (hash + raw.charCodeAt(i)) % AVATAR_CHARACTERS.length;
-  }
-  return AVATAR_CHARACTERS[hash].id as MenaAvatarCharacterId;
-}
-
-export function normalizeAvatarId(
-  raw?: string,
-  preferredRegion?: EditionRegion
-): AvatarCharacterId {
-  if (!raw) {
-    return preferredRegion === "MA" ? "ma_tarbouche" : "abu_sultan";
-  }
-  if (isMoroccanAvatarString(raw)) {
-    return normalizeMoroccanAvatarId(raw);
-  }
-  const validMena = AVATAR_CHARACTERS.find((c) => c.id === raw);
-  if (validMena) return validMena.id as MenaAvatarCharacterId;
-  if (preferredRegion === "MA") {
-    return normalizeMoroccanAvatarId(raw);
-  }
-  return normalizeMenaAvatarId(raw);
-}
+export * from "@/lib/avatarData";
+import {
+  AvatarCharacterId,
+  AVATAR_CHARACTERS,
+  isMoroccanAvatarString,
+  MenaAvatarCharacterId,
+  normalizeAvatarId,
+  normalizeMenaAvatarId,
+  normalizeMoroccanAvatarId,
+} from "@/lib/avatarData";
 
 interface CartoonAvatarProps {
   avatarId?: string;
