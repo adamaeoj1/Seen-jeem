@@ -7,7 +7,7 @@
  */
 
 import { SeenJeemCategory } from "@/data/seedQuestions";
-import { RoomState, Player } from "@/lib/gameEngine";
+import { RoomState, Player, sanitizeRoomPlayers } from "@/lib/gameEngine";
 
 export type DbTier = "free" | "party_pass" | "pro";
 
@@ -416,7 +416,9 @@ export async function dbFetchRoom(code: string): Promise<RoomState | null> {
       if (res.ok) {
         const rows = await res.json();
         if (rows[0]?.state_snapshot?.code) {
-          return rows[0].state_snapshot as RoomState;
+          const snapshot = rows[0].state_snapshot as RoomState;
+          snapshot.players = sanitizeRoomPlayers(snapshot.players);
+          return snapshot;
         }
       }
     } catch {
@@ -427,8 +429,14 @@ export async function dbFetchRoom(code: string): Promise<RoomState | null> {
   try {
     const res = await fetch(`/api/rooms/${cleanCode}`, { cache: "no-store" });
     if (res.ok) {
-      const data = (await res.json()) as { room: RoomState | null };
-      return data.room || null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = await res.json();
+      const resolved: RoomState | null =
+        data?.room || (data?.code ? (data as RoomState) : null);
+      if (resolved) {
+        resolved.players = sanitizeRoomPlayers(resolved.players);
+        return resolved;
+      }
     }
   } catch {
     // Ignore
@@ -440,19 +448,48 @@ export async function dbRegisterRoomPlayer(
   roomCode: string,
   player: Player
 ): Promise<void> {
+  const cleanCode = roomCode.toUpperCase().trim();
   const provider = getActiveBackendProvider();
   if (provider === "supabase") {
     try {
-      // Look up room uuid by code if available
+      // Look up room uuid and state_snapshot by code so we only append the player without overwriting teams
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/rooms?code=eq.${encodeURIComponent(
-          roomCode
-        )}&select=id`,
+          cleanCode
+        )}&select=id,state_snapshot`,
         { headers: getSupabaseHeaders() }
       );
       if (res.ok) {
         const rows = await res.json();
         const roomId = rows[0]?.id;
+        const currentSnapshot = rows[0]?.state_snapshot as
+          | RoomState
+          | undefined;
+
+        if (currentSnapshot && currentSnapshot.code) {
+          const filtered = sanitizeRoomPlayers(currentSnapshot.players).filter(
+            (p) => p.id !== player.id && p.name !== player.name
+          );
+          const nextSnapshot: RoomState = {
+            ...currentSnapshot,
+            players: [...filtered, player],
+            updatedAt: Date.now(),
+          };
+          await fetch(
+            `${SUPABASE_URL}/rest/v1/rooms?code=eq.${encodeURIComponent(
+              cleanCode
+            )}`,
+            {
+              method: "PATCH",
+              headers: getSupabaseHeaders(),
+              body: JSON.stringify({
+                state_snapshot: nextSnapshot,
+                updated_at: new Date().toISOString(),
+              }),
+            }
+          );
+        }
+
         if (roomId) {
           await fetch(`${SUPABASE_URL}/rest/v1/room_players`, {
             method: "POST",

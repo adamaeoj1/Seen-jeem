@@ -9,7 +9,9 @@ export interface SeenJeemQuestion {
   hint?: string;
   displayAnswer: string;
   acceptedAnswers: string[];
+  acceptedSynonyms?: string[];
   rejectedTraps?: string[];
+  trapNote?: string;
   funFact: string;
 }
 
@@ -71,14 +73,30 @@ export interface QuickReflexRound {
   grid: ReflexCell[]; // 6 cells
 }
 
+export type ProductIllustrationType =
+  | "vision_pro"
+  | "ps5_pro"
+  | "dyson"
+  | "espresso"
+  | "watch"
+  | "smart_glasses"
+  | "ps5_slim"
+  | "atay_set"
+  | "iphone_16_pro"
+  | "airpods_pro_2"
+  | "dacia_logan";
+
 export interface PriceGuessRound {
   id: string;
   productName: string;
   brand: string;
+  categoryBadge?: string;
   specs: string;
   actualPriceSar: number;
+  actualPriceDh?: number;
   currencyLabel: string;
-  illustrationType: "vision_pro" | "ps5_pro" | "dyson" | "espresso" | "watch" | "smart_glasses";
+  imageUrl?: string;
+  illustrationType: ProductIllustrationType;
   funFact: string;
 }
 
@@ -95,7 +113,9 @@ export interface WhatsInFrameRound {
     | "pyramids";
   displayAnswer: string;
   acceptedAnswers: string[];
+  acceptedSynonyms?: string[];
   rejectedTraps: string[];
+  trapNote?: string;
   funFact: string;
 }
 
@@ -159,7 +179,7 @@ export const MINI_GAMES_META: MiniGameMeta[] = [
     subtitle: "طابق اللون والشكل المطلوب في أجزاء من الثانية دون الوقوع في الفخ!",
     badge: "تركيز بصري 🎯",
     color: "#DE7A7A",
-    icon: "Sparkles",
+    icon: "Brain",
     defaultDurationSec: 15,
     howToPlay: "اقرأ المطلوب بدقة (مثلاً: أزرق + مربع) واضغط على الشكل الصحيح من بين ٦ أشكال ملونة على جوالك بأقصى سرعة!",
   },
@@ -170,9 +190,9 @@ export const MINI_GAMES_META: MiniGameMeta[] = [
     subtitle: "خمّن السعر الحقيقي للمنتج المعروض.. الأقرب للسعر الفعلي يفوز!",
     badge: "خبير تسعير 💰",
     color: "#2ECC71",
-    icon: "Tag",
+    icon: "BadgeDollarSign",
     defaultDurationSec: 30,
-    howToPlay: "شاهد تفاصيل المنتج المعروض على الشاشة الرئيسية، ثم اكتب تخمينك للسعر بالريال السعودي على جوالك.",
+    howToPlay: "شاهد تفاصيل المنتج المعروض على الشاشة الرئيسية، ثم اكتب تخمينك للسعر في هاتفك.",
   },
   {
     id: "WHATS_IN_FRAME",
@@ -181,7 +201,7 @@ export const MINI_GAMES_META: MiniGameMeta[] = [
     subtitle: "مَعلم تاريخي أو مشهد شهير على الشاشة.. اكتب اسمه والحكم الذكي يصحح!",
     badge: "قوة ملاحظة 🖼️",
     color: "#3B66B4",
-    icon: "Eye",
+    icon: "ScanSearch",
     defaultDurationSec: 35,
     howToPlay: "ركّز في اللقطة المرسومة على شاشة المضيف واكتب اسم المعلم أو الفيلم أو المدينة في جوالك.",
   },
@@ -236,20 +256,22 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
     id: "history",
     title: "تاريخ وحضارات",
     subtitle: "إمبراطوريات، معارك، وعواصم تاريخية",
-    icon: "Landmark",
+    icon: "ScrollText",
     color: "#F4D03F",
     questions: [
       {
-        id: "hist-200-1",
+        id: "hist-const-fix",
         categoryId: "history",
         points: 200,
         slotIndex: 0,
         question: "ما هو الاسم التاريخي القديم لمدينة إسطنبول قبل الفتح العثماني عام ١٤٥٣م؟",
-        hint: "أسسها الإمبراطور الروماني قسطنطين الأول",
-        displayAnswer: "القسطنطينية (بيزنطة / قسطنطينة)",
-        acceptedAnswers: ["القسطنطينية", "قسطنطينة", "قسطنطينيه", "بيزنطة", "بيزنطه", "اسلامبول", "روما الجديدة"],
-        rejectedTraps: ["إسطنبول", "أنقرة", "أثينا"],
-        funFact: "سميت القسطنطينية نسبةً للإمبراطور قسطنطين العظيم سنة ٣٣٠م وظلت عاصمة الإمبراطورية البيزنطية لأكثر من ألف عام.",
+        hint: "أسسها الإمبراطور الروماني قسطنطين الأول (انتبه للفرق بينها وبين المدينة الجزائرية!)",
+        displayAnswer: "القسطنطينية (بيزنطة)",
+        acceptedAnswers: ["القسطنطينية", "بيزنطة", "قسطنطينيه", "بيزنطه", "روما الجديدة"],
+        acceptedSynonyms: ["القسطنطينية", "بيزنطة", "قسطنطينيه", "بيزنطه", "روما الجديدة"],
+        rejectedTraps: ["قسطنطينة", "قسطنطينه", "إسطنبول", "أنقرة", "أثينا"],
+        trapNote: "تنبيه: قسطنطينة هي المدينة الجزائرية العريقة، أما عاصمة البيزنطيين فهي القسطنطينية (إسطنبول حالياً)!",
+        funFact: "تنبيه: قسطنطينة هي المدينة الجزائرية العريقة، أما عاصمة البيزنطيين فهي القسطنطينية (إسطنبول حالياً)! سميت القسطنطينية نسبةً للإمبراطور قسطنطين العظيم سنة ٣٣٠م.",
       },
       {
         id: "hist-200-2",
@@ -317,7 +339,7 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
     id: "cities",
     title: "عواصم ومدن",
     subtitle: "جولة حول أشهر مدن وعواصم العالم",
-    icon: "Globe",
+    icon: "Landmark",
     color: "#3B66B4",
     questions: [
       {
@@ -479,7 +501,7 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
     id: "movies",
     title: "أفلام ومسلسلات",
     subtitle: "سينما عالمية، أنمي، وأعمال عربية خالدة",
-    icon: "Film",
+    icon: "Clapperboard",
     color: "#DE7A7A",
     questions: [
       {
@@ -641,7 +663,7 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
     id: "culture",
     title: "ثقافة عامة ولغة",
     subtitle: "أدب عربي، أمثال، غرائب، ومعلومات ذكية",
-    icon: "BookOpen",
+    icon: "Puzzle",
     color: "#3B66B4",
     questions: [
       {
@@ -722,7 +744,7 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
     id: "geography",
     title: "جغرافيا وعجائب",
     subtitle: "قارات، أنهار، جبال، وجزر العالم",
-    icon: "Compass",
+    icon: "Globe2",
     color: "#2ECC71",
     questions: [
       {
@@ -803,7 +825,7 @@ export const SEEN_JEEM_CATEGORIES: SeenJeemCategory[] = [
     id: "gaming_tech",
     title: "تقنية وألعاب",
     subtitle: "عالم الألعاب، الذكاء الاصطناعي، وعمالقة التقنية",
-    icon: "Gamepad2",
+    icon: "Cpu",
     color: "#F4D03F",
     questions: [
       {
@@ -929,6 +951,34 @@ export const SPEED_TRIVIA_ROUNDS: SpeedTriviaRound[] = [
     correctIndex: 2,
     explanation: "تمتد جبال الأنديز في أمريكا الجنوبية لمسافة ٧٠٠٠ كم، بينما الهيمالايا هي الأعلى ارتفاعاً.",
   },
+  {
+    id: "spd-2026-1",
+    question: "كم عدد الميداليات الذهبية التي حققها العداء المغربي سفيان البقالي في سباق 3000 متر موانع في أولمبيادي طوكيو 2020 وباريس 2024؟",
+    options: ["ذهبية واحدة", "ذهبيتان متتاليتان", "3 ذهبيات", "فضية وذهبية"],
+    correctIndex: 1,
+    explanation: "حقق سفيان البقالي إنجازاً تاريخياً بالحفاظ على لقبه الأولمبي في طوكيو 2020 وباريس 2024.",
+  },
+  {
+    id: "spd-2026-2",
+    question: "ما هي أعلى قمة جبلية في المغرب وشمال إفريقيا (بارتفاع 4,167 متر)؟",
+    options: ["جبل العياشي", "قمة توبقال", "جبل تدغين", "جبل مكون"],
+    correctIndex: 1,
+    explanation: "تقع قمة جبل توبقال في سلسلة الأطلس الكبير ويبلغ ارتفاعها 4,167 متراً.",
+  },
+  {
+    id: "spd-2026-3",
+    question: "أي مدينة مغربية تُلقب بـ «عاصمة الفضة» وتشتهر بصناعة الحلي والخناجر الفضية الأمازيغية؟",
+    options: ["تيزنيت", "تارودانت", "الصويرة", "ورزازات"],
+    correctIndex: 0,
+    explanation: "تشتهر مدينة تيزنيت في جنوب المغرب بمهرجان الفضة وصياغة الحلي الفضية الأصيلة.",
+  },
+  {
+    id: "spd-2026-4",
+    question: "ما هو الكوكب الوحيد في المجموعة الشمسية الذي يدور حول نفسه باتجاه عقارب الساعة (من الشرق للغرب)؟",
+    options: ["المريخ", "الزهرة", "عطارد", "زحل"],
+    correctIndex: 1,
+    explanation: "يدور كوكب الزهرة عكس اتجاه دوران الأرض وبقية الكواكب فتشرق الشمس فيه من الغرب.",
+  },
 ];
 
 export const QUICK_REFLEX_ROUNDS: QuickReflexRound[] = [
@@ -1009,9 +1059,11 @@ export const PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     id: "pg-1",
     productName: "نظارة الواقع المختلط Apple Vision Pro (سعة 256GB)",
     brand: "Apple",
+    categoryBadge: "واقع مختلط • تقنية المستقبل",
     specs: "شاشات Micro-OLED بدقة 4K لكل عين • معالج M2 + R1 • تتبع حركة العين واليد",
     actualPriceSar: 14999,
     currencyLabel: "ريال سعودي",
+    imageUrl: "https://images.unsplash.com/photo-1707227157310-0b86d0b4b65f?auto=format&fit=crop&w=900&q=85",
     illustrationType: "vision_pro",
     funFact: "أطلقت أبل نظارة Vision Pro بسعر رسمي ٣٤٩٩ دولاراً أمريكياً (حوالي ١٤,٩٩٩ ريالاً مع الضريبة).",
   },
@@ -1019,9 +1071,11 @@ export const PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     id: "pg-2",
     productName: "جهاز PlayStation 5 Pro الجديد (نسخة 2TB)",
     brand: "Sony Interactive",
+    categoryBadge: "ألعاب وكونسول • الجيل الاحترافي",
     specs: "قرص صلب ٢ تيرابايت • تتبع أشعة متقدم • تقنية PSSR بالذكاء الاصطناعي",
     actualPriceSar: 3399,
     currencyLabel: "ريال سعودي",
+    imageUrl: "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?auto=format&fit=crop&w=900&q=85",
     illustrationType: "ps5_pro",
     funFact: "يأتي جهاز PS5 Pro بسعر رسمي قدره ٣٣٩٩ ريالاً سعودياً في المتاجر المعتمدة بدون محرك الأقراص.",
   },
@@ -1029,9 +1083,11 @@ export const PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     id: "pg-3",
     productName: "مصفف الشعر Dyson Airwrap Complete Long",
     brand: "Dyson",
+    categoryBadge: "عناية وجمال • إصدار كامل",
     specs: "٦ ملحقات تصفيف مغناطيسية • محرك رقمي V9 • تحكم ذكي بالحرارة",
     actualPriceSar: 2499,
     currencyLabel: "ريال سعودي",
+    imageUrl: "https://images.unsplash.com/photo-1522338140262-f46f5913618a?auto=format&fit=crop&w=900&q=85",
     illustrationType: "dyson",
     funFact: "يعتمد جهاز دايسون إير راب على ظاهرة «كواندا» الفيزيائية لجذب الشعر بالهواء دون حرارة مفرطة.",
   },
@@ -1039,9 +1095,11 @@ export const PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     id: "pg-4",
     productName: "ماكينة القهوة الاحترافية Breville Barista Express",
     brand: "Breville / Sage",
+    categoryBadge: "ركن القهوة المختصة • باريستا",
     specs: "مطحنة مخروطية مدمجة • عصا تبخير حليب احترافية • هيكل ستانلس ستيل",
     actualPriceSar: 3150,
     currencyLabel: "ريال سعودي",
+    imageUrl: "https://images.unsplash.com/photo-1517668808822-9ebb02f2a0e6?auto=format&fit=crop&w=900&q=85",
     illustrationType: "espresso",
     funFact: "تُعد هذه الماكينة من أشهر مكائن الإسبريسو المنزلية في العالم ويتراوح سعرها الرسمي حول ٣١٥٠ ريالاً.",
   },
@@ -1049,9 +1107,11 @@ export const PRICE_GUESS_ROUNDS: PriceGuessRound[] = [
     id: "pg-5",
     productName: "نظارة Ray-Ban Meta الذكية بالكاميرا والذكاء الاصطناعي",
     brand: "Meta × Ray-Ban",
+    categoryBadge: "أجهزة قابلة للارتداء • ذكاء اصطناعي",
     specs: "كاميرا ١٢ ميجابكسل • سماعات مفتوحة مدمجة • بث مباشر ومساعد ذكي",
     actualPriceSar: 1390,
     currencyLabel: "ريال سعودي",
+    imageUrl: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?auto=format&fit=crop&w=900&q=85",
     illustrationType: "smart_glasses",
     funFact: "تبدأ أسعار نظارة Ray-Ban Meta من ٢٩٩ دولاراً (حوالي ١٣٩٠ ريالاً سعودياً مع الشحن والضريبة).",
   },
@@ -1063,9 +1123,11 @@ export const WHATS_IN_FRAME_ROUNDS: WhatsInFrameRound[] = [
     prompt: "ما هو الاسم التاريخي القديم لهذه المدينة المحصنة بالأسوار قبل فتحها عام ١٤٥٣م؟",
     clue: "الاسم القديم وليس إسطنبول!",
     sceneArtworkId: "constantinople",
-    displayAnswer: "القسطنطينية (قسطنطينة / بيزنطة)",
-    acceptedAnswers: ["القسطنطينية", "قسطنطينة", "قسطنطينيه", "بيزنطة", "بيزنطه"],
-    rejectedTraps: ["إسطنبول", "أنقرة", "روما"],
+    displayAnswer: "القسطنطينية (بيزنطة)",
+    acceptedAnswers: ["القسطنطينية", "قسطنطينيه", "بيزنطة", "بيزنطه"],
+    acceptedSynonyms: ["القسطنطينية", "قسطنطينيه", "بيزنطة", "بيزنطه"],
+    rejectedTraps: ["قسطنطينة", "قسطنطينه", "إسطنبول", "أنقرة", "روما"],
+    trapNote: "تنبيه: قسطنطينة هي المدينة الجزائرية العريقة، أما عاصمة البيزنطيين فهي القسطنطينية (إسطنبول حالياً)!",
     funFact: "أسوار القسطنطينية الثلاثية صمدت لأكثر من ألف عام حتى استخدام المدافع العملاقة عام ١٤٥٣م.",
   },
   {
@@ -1151,9 +1213,75 @@ export const CLOSEST_NUMBER_ROUNDS: ClosestNumberRound[] = [
     hintRange: "حوالي ٨ دقائق وثلث (بين ٢٠٠ و ٩٠٠ ثانية)",
     funFact: "يقطع الضوء مسافة ١٤٩.٦ مليون كم من الشمس للأرض في ٤٩٩ ثانية (٨ دقائق و ١٩ ثانية).",
   },
+  {
+    id: "num-2026-1",
+    question: "كم يبلغ ارتفاع قمة جبل توبقال (أعلى قمة في المغرب وشمال إفريقيا) بالأمتار؟",
+    unitLabel: "متر",
+    correctNumber: 4167,
+    hintRange: "النطاق التقريبي: بين 3,000 و 5,000 متر",
+    funFact: "يبلغ الارتفاع الرسمي لقمة توبقال في الأطلس الكبير 4,167 متراً عن سطح البحر.",
+  },
+  {
+    id: "num-2026-2",
+    question: "في أي سنة ميلادية تأسس جامع وجامعة القرويين في مدينة فاس؟",
+    unitLabel: "ميلادية",
+    correctNumber: 859,
+    hintRange: "النطاق التقريبي: بين 750 و 1000 ميلادية",
+    funFact: "أسست فاطمة الفهرية جامع القرويين بفاس عام 859 ميلادية (245 هجرية).",
+  },
+  {
+    id: "num-2026-3",
+    question: "كم تبلغ المسافة الطرقية عبر الطريق السيار بين مدينتي الدار البيضاء ومراكش بالكيلومتر؟",
+    unitLabel: "كم",
+    correctNumber: 242,
+    hintRange: "النطاق التقريبي: بين 150 و 350 كم",
+    funFact: "تبلغ المسافة عبر الطريق السيار A3 بين الدار البيضاء ومراكش حوالي 242 كيلومتراً.",
+  },
 ];
 
 export const DRAWING_CHALLENGE_ROUNDS: DrawingChallengeRound[] = [
+  {
+    id: "draw-ma-1",
+    secretWord: "براد أتاي مشحر",
+    categoryHint: "تراث مغربي",
+    acceptedAnswers: ["براد أتاي مشحر", "براد أتاي", "براد اتاي", "اتاي", "أتاي", "براد"],
+    difficultyPoints: 400,
+  },
+  {
+    id: "draw-ma-2",
+    secretWord: "طاجين بالبرقوق",
+    categoryHint: "طبخ مغربي",
+    acceptedAnswers: ["طاجين بالبرقوق", "طاجين", "طاجين مغربي", "طاجين اللحم بالبرقوق"],
+    difficultyPoints: 400,
+  },
+  {
+    id: "draw-ma-3",
+    secretWord: "طربوش مغربي",
+    categoryHint: "لباس تقليدي",
+    acceptedAnswers: ["طربوش مغربي", "طربوش", "الطربوش", "طربوش فاسي"],
+    difficultyPoints: 350,
+  },
+  {
+    id: "draw-ma-4",
+    secretWord: "قطار البراق السريع",
+    categoryHint: "معالم المغرب",
+    acceptedAnswers: ["قطار البراق السريع", "قطار البراق", "البراق", "تي جي في", "قطار سريع"],
+    difficultyPoints: 450,
+  },
+  {
+    id: "draw-ma-5",
+    secretWord: "أسد إفران الصخري",
+    categoryHint: "معالم المغرب",
+    acceptedAnswers: ["أسد إفران الصخري", "أسد إفران", "اسد افران", "أسد الأطلس", "سبع إفران"],
+    difficultyPoints: 450,
+  },
+  {
+    id: "draw-ma-6",
+    secretWord: "الگراب (ساقي الماء التقليدي)",
+    categoryHint: "ساحة جامع الفنا",
+    acceptedAnswers: ["الگراب", "الكراب", "گراب", "كراب", "ساقي الماء", "القراب"],
+    difficultyPoints: 500,
+  },
   {
     id: "dc-1",
     secretWord: "نخلة تحت المطر",

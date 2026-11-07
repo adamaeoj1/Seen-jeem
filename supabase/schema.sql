@@ -1,6 +1,7 @@
 -- ============================================================================
--- SEEN JEEM x GIMNIM (سين جيم × قمنم) — PRODUCTION SUPABASE SQL SCHEMA
+-- SEEN JEEM x GIMNIM (سين جيم × قمنم) — PRODUCTION SUPABASE SQL SCHEMA (v2)
 -- Run this script directly in the Supabase SQL Editor.
+-- Safe & Idempotent: Can be run on a fresh DB or an existing DB without data loss.
 -- ============================================================================
 
 create extension if not exists "pgcrypto";
@@ -48,6 +49,9 @@ create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
   code text unique not null,
   host_id uuid null references public.profiles(id) on delete set null,
+  edition text not null default 'MA' check (edition in ('MA', 'MENA')),
+  board_size integer not null default 18 check (board_size in (18, 36)),
+  answering_mode text not null default 'TYPING' check (answering_mode in ('TYPING', 'BUZZER')),
   status text not null default 'LOBBY' check (
     status in ('LOBBY', 'MODE_SELECT', 'ROUND_INTRO', 'PLAYING', 'LOCKED', 'REVEAL_AND_SCORE', 'LEADERBOARD')
   ),
@@ -58,9 +62,9 @@ create table if not exists public.rooms (
   team1_score integer not null default 0,
   team2_score integer not null default 0,
   settings jsonb not null default '{
-    "team1Name": "فريق الصقور",
+    "team1Name": "أسود الأطلس",
     "team1Color": "#3B66B4",
-    "team2Name": "فريق النمور",
+    "team2Name": "القراصنة",
     "team2Color": "#E65C2E",
     "timerSec": 45,
     "soundEnabled": true,
@@ -70,6 +74,11 @@ create table if not exists public.rooms (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Non-destructive migration for existing rooms table
+alter table public.rooms add column if not exists edition text not null default 'MA';
+alter table public.rooms add column if not exists board_size integer not null default 18;
+alter table public.rooms add column if not exists answering_mode text not null default 'TYPING';
 
 create index if not exists idx_rooms_code on public.rooms(code);
 
@@ -108,6 +117,62 @@ create table if not exists public.custom_packs (
 create index if not exists idx_custom_packs_owner on public.custom_packs(owner_id);
 
 -- ============================================================================
+-- 5. ATOMIC PLAYER JOIN RPC (Prevents Mobile Join from Overwriting Team Names)
+-- ============================================================================
+create or replace function public.join_room_player(
+  p_room_code text,
+  p_player jsonb
+)
+returns jsonb
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_room public.rooms%rowtype;
+  v_players jsonb;
+  v_filtered jsonb := '[]'::jsonb;
+  v_elem jsonb;
+  v_next_snapshot jsonb;
+begin
+  select * into v_room
+  from public.rooms
+  where code = upper(trim(p_room_code))
+  for update;
+
+  if not found then
+    return null;
+  end if;
+
+  v_players := coalesce(v_room.state_snapshot->'players', '[]'::jsonb);
+
+  for v_elem in select * from jsonb_array_elements(v_players)
+  loop
+    if (v_elem->>'id') is distinct from (p_player->>'id')
+       and (v_elem->>'name') is distinct from (p_player->>'name')
+       and (v_elem->>'id') not in ('p-falcon-cap', 'p-tiger-cap')
+    then
+      v_filtered := v_filtered || jsonb_build_array(v_elem);
+    end if;
+  end loop;
+
+  v_filtered := v_filtered || jsonb_build_array(p_player);
+  v_next_snapshot := jsonb_set(
+    coalesce(v_room.state_snapshot, '{}'::jsonb),
+    '{players}',
+    v_filtered,
+    true
+  );
+
+  update public.rooms
+  set state_snapshot = v_next_snapshot,
+      updated_at = now()
+  where id = v_room.id;
+
+  return v_next_snapshot;
+end;
+$$;
+
+-- ============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ============================================================================
 
@@ -116,18 +181,23 @@ alter table public.rooms enable row level security;
 alter table public.room_players enable row level security;
 alter table public.custom_packs enable row level security;
 
--- Profiles: Users can read and update their own profile
+-- Profiles: Users can read, insert, and update their own profile
 drop policy if exists "Users can view own profile" on public.profiles;
 create policy "Users can view own profile"
   on public.profiles for select
   using (auth.uid() = id);
+
+drop policy if exists "Users can insert own profile" on public.profiles;
+create policy "Users can insert own profile"
+  on public.profiles for insert
+  with check (auth.uid() = id);
 
 drop policy if exists "Users can update own profile" on public.profiles;
 create policy "Users can update own profile"
   on public.profiles for update
   using (auth.uid() = id);
 
--- Rooms: Anyone with the room code can read & update active game room state
+-- Rooms: Anyone with the room code can read, insert, update & delete active game room state
 drop policy if exists "Public read rooms" on public.rooms;
 create policy "Public read rooms"
   on public.rooms for select
@@ -141,6 +211,11 @@ create policy "Host and players can insert rooms"
 drop policy if exists "Host and players can update rooms" on public.rooms;
 create policy "Host and players can update rooms"
   on public.rooms for update
+  using (true);
+
+drop policy if exists "Host can delete rooms" on public.rooms;
+create policy "Host can delete rooms"
+  on public.rooms for delete
   using (true);
 
 -- Room Players: Players join without needing an account (QR code / 4-char code)
@@ -191,9 +266,13 @@ create policy "Delete custom packs"
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    alter publication supabase_realtime add table public.rooms;
-    alter publication supabase_realtime add table public.room_players;
+    begin
+      alter publication supabase_realtime add table public.rooms;
+    exception when duplicate_object then null;
+    end;
+    begin
+      alter publication supabase_realtime add table public.room_players;
+    exception when duplicate_object then null;
+    end;
   end if;
-exception
-  when duplicate_object then null;
 end $$;

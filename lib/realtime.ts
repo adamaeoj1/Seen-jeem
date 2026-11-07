@@ -4,7 +4,7 @@
  * and silent Next.js API + BroadcastChannel synchronization.
  */
 
-import { RoomState, Player } from "@/lib/gameEngine";
+import { RoomState, Player, sanitizeRoomPlayers } from "@/lib/gameEngine";
 import { dbFetchRoom, dbUpsertRoom, getActiveBackendProvider } from "@/lib/db";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -26,7 +26,11 @@ export function loadCachedRoom(code: string): RoomState | null {
   const raw = window.localStorage.getItem(key);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as RoomState;
+    const parsed = JSON.parse(raw) as RoomState;
+    if (parsed && Array.isArray(parsed.players)) {
+      parsed.players = sanitizeRoomPlayers(parsed.players);
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -39,6 +43,17 @@ export function broadcastRoomState(
   if (typeof window === "undefined") return;
   const cleanCode = room.code.toUpperCase().trim();
   room.updatedAt = Date.now();
+  room.players = sanitizeRoomPlayers(room.players);
+  if (room.teams?.team1 && room.teams?.team2) {
+    room.teamA = {
+      name: room.teams.team1.name,
+      score: room.teams.team1.score,
+    };
+    room.teamB = {
+      name: room.teams.team2.name,
+      score: room.teams.team2.score,
+    };
+  }
   const key = ROOM_STORAGE_PREFIX + cleanCode;
   const serialized = JSON.stringify(room);
 
@@ -61,14 +76,20 @@ export function broadcastRoomState(
   }
 
   // 2. Sync to Next.js server endpoint for multi-device LAN/deployment sync
+  const apiBody = joinedPlayer
+    ? JSON.stringify({ action: "JOIN_PLAYER", player: joinedPlayer })
+    : serialized;
+
   fetch(`/api/rooms/${cleanCode}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: serialized,
+    body: apiBody,
   }).catch(() => {});
 
-  // 3. Persist to Supabase / Appwrite DB if configured
-  dbUpsertRoom(room).catch(() => {});
+  // 3. Persist to Supabase / Appwrite DB if configured (only full host updates, player joins use dbRegisterRoomPlayer)
+  if (!joinedPlayer) {
+    dbUpsertRoom(room).catch(() => {});
+  }
 }
 
 export function subscribeToRoomRealtime(
@@ -184,8 +205,14 @@ export function subscribeToRoomRealtime(
 
   // 4. Multi-device sync polling (every 1100ms)
   const pollId = window.setInterval(async () => {
+    const localLatest = loadCachedRoom(cleanCode)?.updatedAt || 0;
+    if (localLatest > latestTimestamp) {
+      latestTimestamp = localLatest;
+    }
     const remoteRoom = await dbFetchRoom(cleanCode);
-    if (remoteRoom && remoteRoom.updatedAt > latestTimestamp) {
+    const currentLocalLatest = loadCachedRoom(cleanCode)?.updatedAt || 0;
+    const minAcceptTs = Math.max(latestTimestamp, currentLocalLatest);
+    if (remoteRoom && remoteRoom.updatedAt > minAcceptTs) {
       window.localStorage.setItem(key, JSON.stringify(remoteRoom));
       processIncomingRoom(remoteRoom);
     }

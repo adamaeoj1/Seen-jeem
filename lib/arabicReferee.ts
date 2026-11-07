@@ -234,34 +234,13 @@ export function calculateArabicSimilarity(input: string, target: string): number
   const dist = levenshteinDistance(normInput, normTarget);
   const directSim = Math.max(0, 1 - dist / maxLen);
 
-  // Also test phonetic/nisba stem form (e.g. "قسطنطينة" vs "القسطنطينية")
-  const stemInput = normalizeArabic(input, {
-    stripDefiniteArticle: true,
-    collapseEndingYa: true,
-  });
-  const stemTarget = normalizeArabic(target, {
-    stripDefiniteArticle: true,
-    collapseEndingYa: true,
-  });
-
-  let stemSim = 0;
-  if (stemInput && stemTarget) {
-    if (stemInput === stemTarget) {
-      stemSim = 0.96; // Near-exact phonetic match
-    } else {
-      const stemMax = Math.max(stemInput.length, stemTarget.length);
-      const stemDist = levenshteinDistance(stemInput, stemTarget);
-      stemSim = Math.max(0, 1 - stemDist / stemMax);
-    }
-  }
-
   // Also check if the target is cleanly contained as a whole word inside a slightly longer answer
   let containmentSim = 0;
   if (normTarget.length >= 4 && normInput.includes(normTarget)) {
     containmentSim = 0.9;
   }
 
-  return Math.max(directSim, stemSim, containmentSim);
+  return Math.max(directSim, containmentSim);
 }
 
 /**
@@ -272,9 +251,13 @@ export function evaluateArabicAnswer(
   playerAnswer: string,
   acceptedAnswers: string[],
   rejectedTraps: string[] = [],
-  threshold = 0.82
+  threshold = 0.82,
+  trapNote?: string
 ): RefereeVerdict {
-  const normalizedInput = normalizeArabic(playerAnswer);
+  const normalizedInput = normalizeArabic(playerAnswer, {
+    stripDefiniteArticle: true,
+    collapseEndingYa: false,
+  });
 
   if (!normalizedInput) {
     return {
@@ -287,18 +270,39 @@ export function evaluateArabicAnswer(
     };
   }
 
-  // 1. Check if the player fell into a known rejected trap (e.g., "إسطنبول" instead of "القسطنطينية")
+  // 0. Check if the player's answer is an exact normalized match to any accepted answer first
+  for (const alias of acceptedAnswers) {
+    const normAlias = normalizeArabic(alias, {
+      stripDefiniteArticle: true,
+      collapseEndingYa: false,
+    });
+    if (normAlias && normalizedInput === normAlias) {
+      return {
+        isCorrect: true,
+        isTrap: false,
+        similarity: 1,
+        matchedAlias: alias,
+        normalizedInput,
+        verdictTitle: "إجابة مطابقة ١٠٠٪ ✔",
+        verdictDetail: `تطابق تام مع "${alias}"`,
+      };
+    }
+  }
+
+  // 1. Check if the player fell into a known rejected trap (e.g., "قسطنطينة" or "إسطنبول" instead of "القسطنطينية")
   for (const trap of rejectedTraps) {
     const trapSim = calculateArabicSimilarity(playerAnswer, trap);
-    if (trapSim >= 0.84) {
+    if (trapSim >= 0.85) {
       return {
         isCorrect: false,
         isTrap: true,
         similarity: trapSim,
         trapMatched: trap,
         normalizedInput,
-        verdictTitle: `فخ شائع! (${trap})`,
-        verdictDetail: `الإجابة "${playerAnswer}" تشير إلى "${trap}" وهي إجابة خاطئة لهذا السؤال بالتحديد!`,
+        verdictTitle: trapNote || `فخ شائع! (${trap})`,
+        verdictDetail:
+          trapNote ||
+          `الإجابة "${playerAnswer}" تشير إلى "${trap}" وهي إجابة خاطئة لهذا السؤال بالتحديد!`,
       };
     }
   }

@@ -1,31 +1,49 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Atom,
+  Bell,
   BookOpen,
+  Building2,
   Check,
+  CheckCircle2,
+  Clapperboard,
   Clock,
-  Compass,
-  Film,
+  Cpu,
+  FileEdit,
   Gamepad2,
-  Globe,
+  Globe2,
+  Keyboard,
+  KeyRound,
   Landmark,
+  LayoutGrid,
   Music,
   Play,
+  Puzzle,
+  ScrollText,
   Sparkles,
   Trophy,
   Tv,
   Volume2,
-  Wand2,
   X,
 } from "lucide-react";
 import {
   MiniGameId,
-  SEEN_JEEM_CATEGORIES,
   SeenJeemCategory,
 } from "@/data/seedQuestions";
-import { RoomSettings, SessionModeConfig } from "@/lib/gameEngine";
+import {
+  getRegionalSeedCategories,
+  RoomSettings,
+  SessionModeConfig,
+} from "@/lib/gameEngine";
+import {
+  isDefaultTeamName,
+  SeenJeemAnswerMode,
+  SeenJeemBoardSize,
+  useEdition,
+} from "@/lib/editionManager";
+import { useVoucherLicense } from "@/lib/voucherEngine";
 
 interface SessionSetupModalProps {
   isOpen: boolean;
@@ -37,7 +55,11 @@ interface SessionSetupModalProps {
   onConfirmStartSession: (
     settings: RoomSettings,
     selectedCategoryIds: string[],
-    startMiniGameId?: MiniGameId
+    startMiniGameId?: MiniGameId,
+    adapterConfig?: {
+      boardSize: SeenJeemBoardSize;
+      answerMode: SeenJeemAnswerMode;
+    }
   ) => void;
 }
 
@@ -59,23 +81,92 @@ export function SessionSetupModal({
   onOpenCustomBuilder,
   onConfirmStartSession,
 }: SessionSetupModalProps) {
-  const allCategories = [...SEEN_JEEM_CATEGORIES, ...customCategories];
+  const { region, edition } = useEdition();
+  const {
+    activeLicense,
+    isB2BCafeUnlocked,
+    cafeConfig,
+    saveCafeConfig,
+    redeemVoucher,
+  } = useVoucherLicense();
+  const [studioRevision, setStudioRevision] = useState(0);
+  useEffect(() => {
+    const onBankUpdated = () => setStudioRevision((r) => r + 1);
+    window.addEventListener("qadha_question_bank_updated", onBankUpdated);
+    return () =>
+      window.removeEventListener("qadha_question_bank_updated", onBankUpdated);
+  }, []);
+
+  const regionalSeedCategories = React.useMemo(
+    () => getRegionalSeedCategories(region),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [region, studioRevision]
+  );
+  const allCategories = [
+    ...regionalSeedCategories,
+    ...customCategories.filter(
+      (cc) => !regionalSeedCategories.some((rc) => rc.id === cc.id)
+    ),
+  ];
 
   const [sessionMode, setSessionMode] =
     useState<SessionModeConfig>(initialMode);
-  const [team1Name, setTeam1Name] = useState("فريق الصقور");
+  const [team1Name, setTeam1Name] = useState("");
   const [team1Color, setTeam1Color] = useState("#3B66B4");
-  const [team2Name, setTeam2Name] = useState("فريق النمور");
+  const [team2Name, setTeam2Name] = useState("");
   const [team2Color, setTeam2Color] = useState("#E65C2E");
   const [timerSec, setTimerSec] = useState<30 | 45 | 60>(45);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(true);
 
+  // Voucher & B2B Cafe state inside Host Setup
+  const [voucherInput, setVoucherInput] = useState("");
+  const [voucherMsg, setVoucherMsg] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+  const [cafeNameInput, setCafeNameInput] = useState(cafeConfig.cafeName);
+  const [cafeLogoInput, setCafeLogoInput] = useState(cafeConfig.cafeLogoUrl);
+
+  // Frontend Adapter Toggles (18 vs 36 Board Size + Auto-Referee vs Buzzer Mode)
+  const [boardSize, setBoardSize] = useState<SeenJeemBoardSize>(18);
+  const [answerMode, setAnswerMode] = useState<SeenJeemAnswerMode>("TYPING");
+
   const [selectedCats, setSelectedCats] = useState<string[]>(() =>
-    SEEN_JEEM_CATEGORIES.slice(0, 6).map((c) => c.id)
+    getRegionalSeedCategories(region)
+      .slice(0, 6)
+      .map((c) => c.id)
   );
 
+  useEffect(() => {
+    setCafeNameInput(cafeConfig.cafeName);
+    setCafeLogoInput(cafeConfig.cafeLogoUrl);
+  }, [cafeConfig.cafeName, cafeConfig.cafeLogoUrl]);
+
+  // Sync regional categories when region switches
+  useEffect(() => {
+    setTeam1Name((prev) => (isDefaultTeamName(prev) ? "" : prev));
+    setTeam2Name((prev) => (isDefaultTeamName(prev) ? "" : prev));
+    setSelectedCats(
+      getRegionalSeedCategories(region)
+        .slice(0, 6)
+        .map((c) => c.id)
+    );
+  }, [region, edition.defaultTeam1Name, edition.defaultTeam2Name]);
+
+  useEffect(() => {
+    setSessionMode(initialMode);
+  }, [initialMode]);
+
   if (!isOpen) return null;
+
+  const handleApplyVoucher = () => {
+    const res = redeemVoucher(voucherInput);
+    setVoucherMsg({ ok: res.success, text: res.messageAr });
+    if (res.success) {
+      setVoucherInput("");
+    }
+  };
 
   const toggleCategory = (id: string) => {
     setSelectedCats((prev) => {
@@ -92,20 +183,26 @@ export function SessionSetupModal({
 
   const renderCategoryIcon = (iconName: string) => {
     switch (iconName) {
-      case "Landmark":
-        return <Landmark className="w-6 h-6" />;
-      case "Globe":
-        return <Globe className="w-6 h-6" />;
       case "Trophy":
         return <Trophy className="w-6 h-6" />;
+      case "Landmark":
+        return <Landmark className="w-6 h-6" />;
+      case "Puzzle":
+        return <Puzzle className="w-6 h-6" />;
+      case "Clapperboard":
       case "Film":
-        return <Film className="w-6 h-6" />;
+        return <Clapperboard className="w-6 h-6" />;
       case "Atom":
         return <Atom className="w-6 h-6" />;
+      case "ScrollText":
       case "Compass":
-        return <Compass className="w-6 h-6" />;
+        return <ScrollText className="w-6 h-6" />;
+      case "Globe2":
+      case "Globe":
+        return <Globe2 className="w-6 h-6" />;
+      case "Cpu":
       case "Gamepad2":
-        return <Gamepad2 className="w-6 h-6" />;
+        return <Cpu className="w-6 h-6" />;
       case "Sparkles":
         return <Sparkles className="w-6 h-6" />;
       default:
@@ -115,17 +212,27 @@ export function SessionSetupModal({
 
   const handleLaunch = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isB2BCafeUnlocked) {
+      saveCafeConfig({
+        enabled: true,
+        cafeName: cafeNameInput.trim() || "مقهى الأبطال",
+        cafeLogoUrl: cafeLogoInput.trim(),
+      });
+    }
     const settings: RoomSettings = {
       sessionMode,
-      team1Name: team1Name.trim() || "فريق الصقور",
+      team1Name: team1Name.trim() || edition.defaultTeam1Name,
       team1Color,
-      team2Name: team2Name.trim() || "فريق النمور",
+      team2Name: team2Name.trim() || edition.defaultTeam2Name,
       team2Color,
       timerSec,
       soundEnabled,
       musicEnabled,
     };
-    onConfirmStartSession(settings, selectedCats, initialMiniGame);
+    onConfirmStartSession(settings, selectedCats, initialMiniGame, {
+      boardSize,
+      answerMode,
+    });
   };
 
   return (
@@ -138,10 +245,10 @@ export function SessionSetupModal({
         <div className="bg-sunny border-b-4 border-black px-6 py-4 flex items-center justify-between">
           <div>
             <span className="px-2.5 py-0.5 rounded-full bg-black text-sunny text-[11px] font-black">
-              الخطوة ١ من ٣ • إعداد الغرفة
+              الخطوة ١ من ٣ • إعداد {edition.partyTerm}
             </span>
             <h2 className="text-2xl font-black text-black mt-0.5">
-              إعداد جلسة اللعب قبل الفتح
+              إعداد جلسة اللعب ({edition.gatheringPhrase})
             </h2>
           </div>
           <button
@@ -157,29 +264,116 @@ export function SessionSetupModal({
           onSubmit={handleLaunch}
           className="p-6 space-y-6 max-h-[82vh] overflow-y-auto"
         >
+          {/* Prominent Voucher Input Bar at Top of Host Setup Screen */}
+          <div className="bg-sunny/40 border-3 border-black rounded-2xl p-4 shadow-brutal-sm space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs md:text-sm font-black text-black">
+                🎟️ عندك كود تفعيل؟ أدخل كود القصارة
+              </span>
+              {activeLicense && (
+                <span className="px-2.5 py-0.5 rounded-full bg-mint text-black border border-black text-[11px] font-black flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{activeLicense.labelAr}</span>
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                dir="ltr"
+                value={voucherInput}
+                onChange={(e) => setVoucherInput(e.target.value.toUpperCase())}
+                placeholder="KASSARA24-XXXXXX-XXXXXX"
+                className="flex-1 px-3.5 py-2 rounded-xl border-2 border-black bg-white font-mono font-black text-xs md:text-sm uppercase tracking-wider text-center sm:text-left"
+              />
+              <button
+                type="button"
+                onClick={handleApplyVoucher}
+                className="px-5 py-2 rounded-xl bg-black text-sunny font-black text-xs border-2 border-black shadow-brutal-sm flex items-center justify-center gap-1.5"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>تفعيل الكود</span>
+              </button>
+            </div>
+            {voucherMsg && (
+              <div
+                className={`px-3 py-1.5 rounded-xl border-2 border-black text-xs font-black ${
+                  voucherMsg.ok ? "bg-mint text-black" : "bg-coral text-black"
+                }`}
+              >
+                {voucherMsg.text}
+              </div>
+            )}
+          </div>
+
+          {/* B2B Cafe Branding Panel (Unlocked when B2B_CAFE license is active) */}
+          {isB2BCafeUnlocked && (
+            <div className="bg-white border-3 border-black rounded-2xl p-4 shadow-brutal-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs md:text-sm font-black flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-royal" />
+                  <span>إعدادات المقهى / النادي (B2B):</span>
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-sunny border border-black text-[10px] font-black">
+                  سهرة برعاية: {cafeNameInput || "مقهى الأبطال"}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-black mb-1">
+                    اسم المقهى / النادي الجامعي
+                  </label>
+                  <input
+                    type="text"
+                    value={cafeNameInput}
+                    onChange={(e) => setCafeNameInput(e.target.value)}
+                    placeholder="مثال: مقهى أطلس گيمنگ"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-black bg-cream font-black text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-black mb-1">
+                    رابط الشعار (Logo URL - اختياري)
+                  </label>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    value={cafeLogoInput}
+                    onChange={(e) => setCafeLogoInput(e.target.value)}
+                    placeholder="https://example.com/logo.png"
+                    className="w-full px-3 py-2 rounded-xl border-2 border-black bg-cream font-mono font-bold text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 1. Choose Game Mode */}
           <div>
             <label className="block text-sm font-black mb-2.5">
-              ١. اختر نظام السهرة:
+              ١. اختر نظام {edition.partyTerm} في قَدْهَا؟:
             </label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
                 {
                   id: "SEEN_JEEM" as SessionModeConfig,
-                  title: "طور سين جيم التفاعلي",
-                  desc: "لوحة ٣٦ سؤالاً مع تصحيح ذكي بالجوال",
+                  title: "لوحة قَدْهَا؟ التفاعلية",
+                  desc: `لوحة أسئلة تفاعلية مع اللعب ${edition.deviceTerm}`,
                   icon: <Tv className="w-5 h-5" />,
                 },
                 {
                   id: "MINI_GAMES" as SessionModeConfig,
-                  title: "طور الألعاب الثمانية (قمنم)",
-                  desc: "٨ ألعاب سريعة وتحديات حركية بالجوال",
+                  title: "تحديات قَدْهَا؟ الثمانية",
+                  desc: `٨ تحديات سريعة وحركية ${edition.deviceTerm}`,
                   icon: <Gamepad2 className="w-5 h-5" />,
                 },
                 {
                   id: "MIXED_PARTY" as SessionModeConfig,
-                  title: "سهرة مدمجة (سين جيم + قمنم)",
-                  desc: "اجمع بين لوحة سين جيم وجولات قمنم الفاصلة",
+                  title:
+                    region === "MA"
+                      ? "الگلسة المدمجة (اللوحة + التحديات)"
+                      : "السهرة المدمجة (اللوحة + التحديات)",
+                  desc: "اجمع بين لوحة قَدْهَا؟ التفاعلية والتحديات الفاصلة",
                   icon: <Sparkles className="w-5 h-5" />,
                 },
               ].map((m) => (
@@ -209,23 +403,38 @@ export function SessionSetupModal({
             </div>
           </div>
 
-          {/* 2. Team Customization */}
+          {/* 2. Team Customization (Empty initial value + Placeholder + Quick Clear ✕ Button) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white border-3 border-black rounded-2xl p-4 space-y-3 shadow-brutal-sm">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-black">اسم ولون الفريق الأول</label>
+                <label className="text-xs font-black">
+                  اسم ولون الفريق الأول
+                </label>
                 <span
                   className="w-5 h-5 rounded-full border-2 border-black"
                   style={{ backgroundColor: team1Color }}
                 />
               </div>
-              <input
-                type="text"
-                maxLength={20}
-                value={team1Name}
-                onChange={(e) => setTeam1Name(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border-2 border-black bg-cream font-black text-sm"
-              />
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={team1Name}
+                  onChange={(e) => setTeam1Name(e.target.value)}
+                  placeholder={`مثال: ${edition.defaultTeam1Name}`}
+                  className="w-full px-3 py-2 pl-9 rounded-xl border-2 border-black bg-cream font-black text-sm placeholder:text-gray-400"
+                />
+                {team1Name && (
+                  <button
+                    type="button"
+                    onClick={() => setTeam1Name("")}
+                    title="مسح الاسم"
+                    className="absolute left-2 w-6 h-6 rounded-lg bg-black/10 hover:bg-coral text-black font-black text-xs flex items-center justify-center transition"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 {TEAM_COLOR_SWATCHES.map((col) => (
                   <button
@@ -243,19 +452,34 @@ export function SessionSetupModal({
 
             <div className="bg-white border-3 border-black rounded-2xl p-4 space-y-3 shadow-brutal-sm">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-black">اسم ولون الفريق الثاني</label>
+                <label className="text-xs font-black">
+                  اسم ولون الفريق الثاني
+                </label>
                 <span
                   className="w-5 h-5 rounded-full border-2 border-black"
                   style={{ backgroundColor: team2Color }}
                 />
               </div>
-              <input
-                type="text"
-                maxLength={20}
-                value={team2Name}
-                onChange={(e) => setTeam2Name(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border-2 border-black bg-cream font-black text-sm"
-              />
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={team2Name}
+                  onChange={(e) => setTeam2Name(e.target.value)}
+                  placeholder={`مثال: ${edition.defaultTeam2Name}`}
+                  className="w-full px-3 py-2 pl-9 rounded-xl border-2 border-black bg-cream font-black text-sm placeholder:text-gray-400"
+                />
+                {team2Name && (
+                  <button
+                    type="button"
+                    onClick={() => setTeam2Name("")}
+                    title="مسح الاسم"
+                    className="absolute left-2 w-6 h-6 rounded-lg bg-black/10 hover:bg-coral text-black font-black text-xs flex items-center justify-center transition"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 {TEAM_COLOR_SWATCHES.map((col) => (
                   <button
@@ -272,13 +496,82 @@ export function SessionSetupModal({
             </div>
           </div>
 
-          {/* 3. Visual Category Picker (for SEEN_JEEM or MIXED_PARTY) */}
+          {/* 3. Qadha Board Size (18 vs 36) & Answer Mode (Auto-Referee vs Buzzer) */}
+          {(sessionMode === "SEEN_JEEM" || sessionMode === "MIXED_PARTY") && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white border-3 border-black rounded-2xl p-4 space-y-2.5 shadow-brutal-sm">
+                <label className="text-xs font-black flex items-center gap-1.5">
+                  <LayoutGrid className="w-4 h-4 text-royal" />
+                  <span>حجم لوحة قَدْهَا؟:</span>
+                </label>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBoardSize(18)}
+                    className={`p-2.5 rounded-xl border-2 border-black font-black text-xs text-right transition ${
+                      boardSize === 18
+                        ? "bg-sunny text-black shadow-brutal-sm"
+                        : "bg-cream text-gray-700"
+                    }`}
+                  >
+                    جلسة سريعة (18 سؤال: 200، 400، 600)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBoardSize(36)}
+                    className={`p-2.5 rounded-xl border-2 border-black font-black text-xs text-right transition ${
+                      boardSize === 36
+                        ? "bg-sunny text-black shadow-brutal-sm"
+                        : "bg-cream text-gray-700"
+                    }`}
+                  >
+                    جلسة مطولة (36 سؤال)
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white border-3 border-black rounded-2xl p-4 space-y-2.5 shadow-brutal-sm">
+                <label className="text-xs font-black flex items-center gap-1.5">
+                  <Bell className="w-4 h-4 text-burnt" />
+                  <span>طريقة الإجابة في قَدْهَا؟:</span>
+                </label>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAnswerMode("TYPING")}
+                    className={`p-2.5 rounded-xl border-2 border-black font-black text-xs text-right flex items-center justify-between transition ${
+                      answerMode === "TYPING"
+                        ? "bg-royal text-white shadow-brutal-sm"
+                        : "bg-cream text-gray-700"
+                    }`}
+                  >
+                    <span>كتابة بالتليفون (Auto-Referee)</span>
+                    <Keyboard className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnswerMode("BUZZER")}
+                    className={`p-2.5 rounded-xl border-2 border-black font-black text-xs text-right flex items-center justify-between transition ${
+                      answerMode === "BUZZER"
+                        ? "bg-burnt text-white shadow-brutal-sm"
+                        : "bg-cream text-gray-700"
+                    }`}
+                  >
+                    <span>جرس الأسبقية (Buzzer Mode)</span>
+                    <Bell className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4. Visual Category Picker (for SEEN_JEEM or MIXED_PARTY) */}
           {(sessionMode === "SEEN_JEEM" || sessionMode === "MIXED_PARTY") && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <label className="text-sm font-black">
-                    ٢. اختر ٦ فئات للوحة سين جيم ({selectedCats.length}/6):
+                    ٢. اختر ٦ فئات للوحة قَدْهَا؟ ({selectedCats.length}/6):
                   </label>
                 </div>
                 <button
@@ -286,8 +579,8 @@ export function SessionSetupModal({
                   onClick={onOpenCustomBuilder}
                   className="px-3 py-1.5 rounded-xl bg-sunny border-2 border-black text-xs font-black flex items-center gap-1.5 shadow-brutal-sm"
                 >
-                  <Wand2 className="w-3.5 h-3.5" />
-                  <span>+ صانع فئة خاصة</span>
+                  <FileEdit className="w-3.5 h-3.5" />
+                  <span>✏️ استوديو وتعديل الأسئلة</span>
                 </button>
               </div>
 
@@ -333,7 +626,7 @@ export function SessionSetupModal({
                           {cat.title}
                         </div>
                         <div className="text-[11px] font-bold text-gray-600 line-clamp-1">
-                          {cat.questions.length} أسئلة
+                          {boardSize === 18 ? 3 : cat.questions.length} أسئلة
                         </div>
                       </div>
                     </button>
@@ -343,7 +636,7 @@ export function SessionSetupModal({
             </div>
           )}
 
-          {/* 4. Timer Duration & Audio Toggles */}
+          {/* 5. Timer Duration & Audio Toggles */}
           <div className="bg-white border-3 border-black rounded-2xl p-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
             <div>
               <label className="text-xs font-black flex items-center gap-1.5 mb-2">
@@ -377,7 +670,9 @@ export function SessionSetupModal({
                   type="button"
                   onClick={() => setSoundEnabled(!soundEnabled)}
                   className={`py-2 px-3 rounded-xl border-2 border-black font-black text-xs flex items-center justify-center gap-1.5 transition ${
-                    soundEnabled ? "bg-mint text-black" : "bg-gray-200 text-gray-600"
+                    soundEnabled
+                      ? "bg-mint text-black"
+                      : "bg-gray-200 text-gray-600"
                   }`}
                 >
                   <Volume2 className="w-4 h-4" />
@@ -387,7 +682,9 @@ export function SessionSetupModal({
                   type="button"
                   onClick={() => setMusicEnabled(!musicEnabled)}
                   className={`py-2 px-3 rounded-xl border-2 border-black font-black text-xs flex items-center justify-center gap-1.5 transition ${
-                    musicEnabled ? "bg-sunny text-black" : "bg-gray-200 text-gray-600"
+                    musicEnabled
+                      ? "bg-sunny text-black"
+                      : "bg-gray-200 text-gray-600"
                   }`}
                 >
                   <Music className="w-4 h-4" />

@@ -6,9 +6,13 @@ import {
   signInWithEmail,
   signOutUser,
   signUpWithEmail,
-  triggerGoogleOAuth,
   UserProfileRecord,
 } from "@/lib/db";
+import {
+  handleResilientGoogleSignIn,
+  useGoogleAuthDomainFix,
+} from "@/lib/authFixHelper";
+import { useEdition } from "@/lib/editionManager";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -23,12 +27,21 @@ export function AuthModal({
   profile,
   onProfileChange,
 }: AuthModalProps) {
+  const { edition } = useEdition();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState(profile.name || "");
   const [email, setEmail] = useState(profile.email || "");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useGoogleAuthDomainFix({
+    onSuccess: (nextProfile) => {
+      onProfileChange(nextProfile);
+      onClose();
+    },
+    onError: (msg) => setErrorMsg(msg),
+  });
 
   if (!isOpen) return null;
 
@@ -60,14 +73,15 @@ export function AuthModal({
     }
   };
 
-  const handleGoogleLogin = () => {
-    triggerGoogleOAuth();
-    // Refresh profile if handled locally
-    onProfileChange({
-      ...profile,
-      email: profile.email || "host@gmail.com",
+  const handleGoogleLogin = (e: React.MouseEvent<HTMLButtonElement>) => {
+    setErrorMsg(null);
+    handleResilientGoogleSignIn(e, {
+      onSuccess: (updatedProfile) => {
+        onProfileChange(updatedProfile);
+        onClose();
+      },
+      onError: (msg) => setErrorMsg(msg),
     });
-    onClose();
   };
 
   return (
@@ -102,7 +116,7 @@ export function AuthModal({
                     {profile.tier === "pro"
                       ? "المضيف المحترف PRO"
                       : profile.tier === "party_pass"
-                      ? "تذكرة السهرة ٢٤ ساعة"
+                      ? `${edition.ticketName} ٢٤ ساعة`
                       : "الباقة الأساسية"}
                   </span>
                 </div>
@@ -190,7 +204,7 @@ export function AuthModal({
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="سلطان"
+                      placeholder={edition.defaultHostPlaceholder}
                       className="w-full px-3.5 py-2.5 rounded-xl border-2 border-black bg-white font-bold text-sm"
                     />
                   </div>
@@ -253,7 +267,10 @@ export function AuthModal({
 
               <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-gray-600">
                 <ShieldCheck className="w-4 h-4 text-mint" />
-                <span>اللاعبون ينضمون للغرفة مجاناً بدون الحاجة لحساب</span>
+                <span>
+                  اللاعبون ينضمون للغرفة {edition.deviceTerm} مجاناً بدون الحاجة
+                  لحساب
+                </span>
               </div>
             </>
           )}

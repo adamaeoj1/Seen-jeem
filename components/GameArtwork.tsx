@@ -1,140 +1,300 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import {
+  Car,
+  CheckCircle2,
+  Coffee,
+  Gamepad2,
+  Glasses,
+  Headphones,
+  ShoppingBag,
+  Smartphone,
+  Sparkles,
+  Star,
+  Tag,
+} from "lucide-react";
+import { PriceGuessRound, ProductIllustrationType } from "@/data/seedQuestions";
 
 interface ProductArtworkProps {
-  type: "vision_pro" | "ps5_pro" | "dyson" | "espresso" | "watch" | "smart_glasses";
+  type: ProductIllustrationType;
+  imageUrl?: string;
+  productName?: string;
+  brand?: string;
+  categoryBadge?: string;
+  currencyLabel?: string;
 }
 
-export function ProductArtwork({ type }: ProductArtworkProps) {
+export function ProductFallbackIcon({
+  type,
+}: {
+  type: ProductIllustrationType;
+}) {
+  switch (type) {
+    case "ps5_slim":
+    case "ps5_pro":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-royal">
+          <div className="w-20 h-20 rounded-3xl bg-royal/10 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Gamepad2 className="w-11 h-11 text-royal" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            PlayStation Console 1TB
+          </span>
+        </div>
+      );
+    case "atay_set":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-emerald-800">
+          <div className="w-20 h-20 rounded-3xl bg-mint/30 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Coffee className="w-11 h-11 text-emerald-800" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            طقم أتاي مغربي فضي أصيل
+          </span>
+        </div>
+      );
+    case "iphone_16_pro":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-gray-900">
+          <div className="w-20 h-20 rounded-3xl bg-amber-100 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Smartphone className="w-11 h-11 text-gray-900" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            iPhone 16 Pro • Titanium
+          </span>
+        </div>
+      );
+    case "airpods_pro_2":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-royal">
+          <div className="w-20 h-20 rounded-3xl bg-sky-100 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Headphones className="w-11 h-11 text-royal" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            AirPods Pro 2 • MagSafe
+          </span>
+        </div>
+      );
+    case "dacia_logan":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-burnt">
+          <div className="w-20 h-20 rounded-3xl bg-orange-100 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Car className="w-11 h-11 text-burnt" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            Dacia Logan • Maroc Edition
+          </span>
+        </div>
+      );
+    case "espresso":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-burnt">
+          <div className="w-20 h-20 rounded-3xl bg-amber-100 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Coffee className="w-11 h-11 text-burnt" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            Barista Espresso Pro
+          </span>
+        </div>
+      );
+    case "dyson":
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-pink-700">
+          <div className="w-20 h-20 rounded-3xl bg-pink-100 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Sparkles className="w-11 h-11 text-pink-700" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            Dyson Airwrap Complete
+          </span>
+        </div>
+      );
+    default:
+      return (
+        <div className="flex flex-col items-center justify-center gap-2 text-royal">
+          <div className="w-20 h-20 rounded-3xl bg-indigo-100 border-3 border-black shadow-brutal-sm flex items-center justify-center">
+            <Glasses className="w-11 h-11 text-royal" />
+          </div>
+          <span className="text-xs font-black text-black bg-sunny px-3 py-0.5 rounded-full border-2 border-black">
+            Smart XR Device
+          </span>
+        </div>
+      );
+  }
+}
+
+export function ProductArtwork({
+  type,
+  imageUrl,
+  productName,
+  brand,
+  categoryBadge,
+}: ProductArtworkProps) {
+  const [imgError, setImgError] = useState(false);
+
   return (
-    <div className="w-full h-52 bg-cream border-4 border-black rounded-2xl shadow-brutal flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute -top-6 -left-6 w-24 h-24 rounded-full bg-sunny/50 border-2 border-black" />
-      <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-coral/40 border-2 border-black" />
+    <div className="w-full h-56 bg-gradient-to-br from-white via-cream to-sunny/25 border-4 border-black rounded-2xl shadow-brutal flex flex-col justify-between p-3.5 relative overflow-hidden">
+      {/* Top E-Commerce Badges */}
+      <div className="flex items-center justify-between gap-2 z-10">
+        <span className="px-2.5 py-0.5 rounded-full bg-black text-sunny text-[10px] font-black flex items-center gap-1">
+          <ShoppingBag className="w-3 h-3" />
+          <span>{categoryBadge || brand || "متجر السوق الرسمي"}</span>
+        </span>
+        <span className="px-2 py-0.5 rounded-full bg-mint text-black border border-black text-[10px] font-black flex items-center gap-1">
+          <CheckCircle2 className="w-3 h-3" />
+          <span>منتج أصلي</span>
+        </span>
+      </div>
 
-      {type === "vision_pro" && (
-        <svg viewBox="0 0 320 180" className="w-full h-full max-h-44">
-          {/* Strap */}
-          <path
-            d="M40 90 C10 60, 10 120, 40 90 M280 90 C310 60, 310 120, 280 90"
-            stroke="#000"
-            strokeWidth="8"
-            fill="none"
+      {/* Main Product Photo with Clean Fallback Icon */}
+      <div className="flex-1 flex items-center justify-center my-1 overflow-hidden rounded-xl bg-white/85 border-2 border-black/15 relative">
+        {imageUrl && !imgError ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt={productName || type}
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover max-h-36 hover:scale-105 transition-transform duration-300"
           />
-          <rect
-            x="45"
-            y="45"
-            width="230"
-            height="92"
-            rx="46"
-            fill="#E5E7EB"
-            stroke="#000"
-            strokeWidth="6"
-          />
-          <rect
-            x="58"
-            y="54"
-            width="204"
-            height="74"
-            rx="36"
-            fill="#1F2937"
-            stroke="#000"
-            strokeWidth="5"
-          />
-          {/* Nose indent */}
-          <path
-            d="M140 128 Q160 102 180 128"
-            fill="#FFF9E6"
-            stroke="#000"
-            strokeWidth="5"
-          />
-          {/* Glass reflection */}
-          <path
-            d="M80 70 Q160 58 240 70"
-            stroke="#60A5FA"
-            strokeWidth="6"
-            strokeLinecap="round"
-            fill="none"
-          />
-          <circle cx="95" cy="92" r="14" fill="#3B66B4" opacity="0.7" />
-          <circle cx="225" cy="92" r="14" fill="#DE7A7A" opacity="0.7" />
-        </svg>
-      )}
+        ) : (
+          <ProductFallbackIcon type={type} />
+        )}
+      </div>
 
-      {type === "ps5_pro" && (
-        <svg viewBox="0 0 320 180" className="w-full h-full max-h-44">
-          {/* Console tower */}
-          <path
-            d="M115 15 L195 22 L190 165 L110 165 Z"
-            fill="#FFFFFF"
-            stroke="#000"
-            strokeWidth="6"
-          />
-          <rect x="132" y="18" width="42" height="147" fill="#111827" stroke="#000" strokeWidth="4" />
-          {/* 3 Pro black stripes */}
-          <line x1="110" y1="82" x2="195" y2="82" stroke="#000" strokeWidth="5" />
-          <line x1="110" y1="92" x2="195" y2="92" stroke="#000" strokeWidth="5" />
-          <line x1="110" y1="102" x2="195" y2="102" stroke="#000" strokeWidth="5" />
-          {/* Blue LED glow */}
-          <line x1="133" y1="25" x2="133" y2="155" stroke="#3B82F6" strokeWidth="4" />
-          {/* DualSense controller next to it */}
-          <rect
-            x="205"
-            y="105"
-            width="75"
-            height="48"
-            rx="20"
-            fill="#FFF"
-            stroke="#000"
-            strokeWidth="5"
-          />
-          <circle cx="225" cy="130" r="7" fill="#111827" />
-          <circle cx="260" cy="130" r="7" fill="#111827" />
-        </svg>
-      )}
+      {/* Bottom Rating & Mystery Price Bar */}
+      <div className="flex items-center justify-between text-[11px] font-black z-10">
+        <span className="flex items-center gap-1 text-amber-600">
+          <Star className="w-3.5 h-3.5 fill-sunny text-black" />
+          <span className="text-black">4.9 (تقييم المتجر)</span>
+        </span>
+        <span className="px-2.5 py-0.5 rounded-lg bg-sunny border-2 border-black text-black font-mono">
+          كم السعر؟
+        </span>
+      </div>
+    </div>
+  );
+}
 
-      {type === "dyson" && (
-        <svg viewBox="0 0 320 180" className="w-full h-full max-h-44">
-          {/* Main wand */}
-          <rect x="135" y="20" width="46" height="145" rx="20" fill="#DE7A7A" stroke="#000" strokeWidth="6" />
-          <rect x="142" y="20" width="32" height="55" rx="8" fill="#F4D03F" stroke="#000" strokeWidth="5" />
-          {/* Air swirl lines */}
-          <path d="M85 45 Q115 25 130 55" stroke="#3B66B4" strokeWidth="5" fill="none" strokeLinecap="round" />
-          <path d="M235 45 Q205 25 190 55" stroke="#3B66B4" strokeWidth="5" fill="none" strokeLinecap="round" />
-          <circle cx="158" cy="100" r="8" fill="#111827" stroke="#000" strokeWidth="3" />
-          {/* Extra attachments */}
-          <rect x="60" y="75" width="36" height="85" rx="12" fill="#3B66B4" stroke="#000" strokeWidth="5" />
-          <rect x="220" y="75" width="36" height="85" rx="12" fill="#E65C2E" stroke="#000" strokeWidth="5" />
-        </svg>
-      )}
+export function EcommerceProductCard({
+  round,
+  currencyLabel,
+  compact = false,
+}: {
+  round: PriceGuessRound;
+  currencyLabel: string;
+  compact?: boolean;
+}) {
+  const [imgError, setImgError] = useState(false);
+  const specItems = round.specs
+    .split("•")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-      {type === "espresso" && (
-        <svg viewBox="0 0 320 180" className="w-full h-full max-h-44">
-          <rect x="85" y="30" width="150" height="130" rx="14" fill="#D1D5DB" stroke="#000" strokeWidth="6" />
-          <rect x="100" y="42" width="120" height="35" rx="8" fill="#374151" stroke="#000" strokeWidth="5" />
-          {/* Pressure gauge */}
-          <circle cx="160" cy="60" r="12" fill="#FFF9E6" stroke="#000" strokeWidth="4" />
-          <line x1="160" y1="60" x2="167" y2="53" stroke="#E65C2E" strokeWidth="3" />
-          {/* Coffee cup */}
-          <rect x="135" y="112" width="50" height="36" rx="8" fill="#F4D03F" stroke="#000" strokeWidth="5" />
-          <rect x="92" y="148" width="136" height="14" rx="4" fill="#111827" stroke="#000" strokeWidth="4" />
-        </svg>
-      )}
+  return (
+    <div
+      className="bg-white border-4 border-black rounded-3xl shadow-brutal-lg overflow-hidden"
+      dir="rtl"
+    >
+      {/* Storefront Header Bar */}
+      <div className="bg-black text-white px-5 py-3 border-b-4 border-black flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="px-3 py-1 rounded-full bg-sunny text-black text-xs font-black flex items-center gap-1.5">
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>{round.categoryBadge || "بطاقة منتج • السوق الرسمي"}</span>
+          </span>
+          <span className="px-3 py-1 rounded-full bg-white/15 text-white text-xs font-black">
+            {round.brand}
+          </span>
+        </div>
 
-      {(type === "smart_glasses" || type === "watch") && (
-        <svg viewBox="0 0 320 180" className="w-full h-full max-h-44">
-          {/* Wayfarer frame */}
-          <rect x="42" y="55" width="102" height="72" rx="18" fill="#111827" stroke="#000" strokeWidth="6" />
-          <rect x="176" y="55" width="102" height="72" rx="18" fill="#111827" stroke="#000" strokeWidth="6" />
-          <path d="M144 72 Q160 62 176 72" stroke="#000" strokeWidth="10" fill="none" />
-          {/* Lenses */}
-          <rect x="54" y="65" width="78" height="52" rx="12" fill="#3B66B4" stroke="#000" strokeWidth="4" />
-          <rect x="188" y="65" width="78" height="52" rx="12" fill="#3B66B4" stroke="#000" strokeWidth="4" />
-          {/* Smart Camera LED */}
-          <circle cx="49" cy="65" r="5" fill="#F4D03F" stroke="#000" strokeWidth="2" />
-          <circle cx="271" cy="65" r="5" fill="#2ECC71" stroke="#000" strokeWidth="2" />
-        </svg>
-      )}
+        <div className="flex items-center gap-2">
+          <span className="px-2.5 py-1 rounded-full bg-mint text-black text-[11px] font-black flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>متوفر في السوق</span>
+          </span>
+          <span className="px-2.5 py-1 rounded-full bg-sunny/20 text-sunny border border-sunny/40 text-[11px] font-black flex items-center gap-1">
+            <Star className="w-3 h-3 fill-sunny text-sunny" />
+            <span>4.9</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Product Body */}
+      <div
+        className={`p-5 md:p-6 grid grid-cols-1 ${
+          compact ? "gap-4" : "md:grid-cols-12 gap-6"
+        } items-center`}
+      >
+        {/* Product Photo Frame with Fallback Icon */}
+        <div className={compact ? "w-full" : "md:col-span-5"}>
+          <div className="relative h-56 md:h-64 rounded-2xl border-3 border-black bg-gradient-to-br from-cream via-white to-sunny/20 shadow-brutal flex items-center justify-center overflow-hidden p-3">
+            {round.imageUrl && !imgError ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={round.imageUrl}
+                alt={round.productName}
+                onError={() => setImgError(true)}
+                className="w-full h-full object-cover rounded-xl"
+              />
+            ) : (
+              <ProductFallbackIcon type={round.illustrationType} />
+            )}
+
+            {/* Floating Mystery Price Tag */}
+            <div className="absolute bottom-3 left-3 bg-sunny text-black border-2 border-black rounded-xl px-3 py-1.5 shadow-brutal-sm flex items-center gap-1.5 font-black text-xs">
+              <Tag className="w-3.5 h-3.5" />
+              <span>؟؟؟ {currencyLabel}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Product Info & Specs */}
+        <div className={`${compact ? "w-full" : "md:col-span-7"} space-y-4 text-right`}>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-cream border-2 border-black text-xs font-black text-royal">
+            <span>خمّن السعر الحقيقي بالـ {currencyLabel}</span>
+          </div>
+
+          <h2
+            className={`${
+              compact ? "text-lg" : "text-2xl md:text-3xl"
+            } font-black text-black leading-snug`}
+          >
+            {round.productName}
+          </h2>
+
+          {/* Specs Grid */}
+          <div className="space-y-2">
+            <div className="text-xs font-black text-gray-500">
+              المواصفات والتفاصيل:
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {specItems.map((spec, idx) => (
+                <span
+                  key={idx}
+                  className="px-3 py-1.5 rounded-xl bg-cream border-2 border-black text-xs font-black text-gray-800 shadow-brutal-sm"
+                >
+                  • {spec}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Mystery Price Prompt Banner */}
+          <div className="p-3.5 rounded-2xl bg-sunny/35 border-3 border-black flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-black text-gray-700">
+                العملة المعتمدة في هذه الجولة:
+              </div>
+              <div className="text-base md:text-lg font-black text-black">
+                {currencyLabel}
+              </div>
+            </div>
+            <div className="px-4 py-2 rounded-xl bg-black text-sunny font-mono font-black text-sm border-2 border-black">
+              أقرب تخمين يفوز بـ +500 نقطة!
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

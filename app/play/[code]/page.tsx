@@ -3,11 +3,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  Bell,
   CheckCircle2,
   Clock,
   Edit3,
   Eraser,
   Home,
+  Lock,
   MapPin,
   Send,
   ShieldCheck,
@@ -19,6 +21,10 @@ import {
 import {
   createInitialRoomState,
   getActiveSeenJeemQuestion,
+  getRegionalClosestNumberRounds,
+  getRegionalDrawingChallengeRounds,
+  getRegionalPriceGuessRounds,
+  getRegionalSpeedTriviaRounds,
   loadRoomFromLocal,
   loadSavedPlayerIdentity,
   MINI_GAMES_META,
@@ -30,11 +36,11 @@ import {
   subscribeToRoomUpdates,
   TeamId,
 } from "@/lib/gameEngine";
+import { getShuffledSpeedTriviaRound } from "@/lib/questionRandomizer";
 import {
   CLOSEST_NUMBER_ROUNDS,
   DRAWING_CHALLENGE_ROUNDS,
   MAP_PIN_ROUNDS,
-  PRICE_GUESS_ROUNDS,
   QUICK_REFLEX_ROUNDS,
   ReflexColor,
   ReflexShape,
@@ -44,29 +50,43 @@ import {
 } from "@/data/seedQuestions";
 import { parseArabicNumber } from "@/lib/arabicReferee";
 import {
+  EcommerceProductCard,
   FrameSceneArtwork,
-  ProductArtwork,
   SceneDescriptionArtwork,
 } from "@/components/GameArtwork";
 import { InteractiveWorldMap } from "@/components/InteractiveWorldMap";
 import {
-  AVATAR_CHARACTERS,
   AvatarCharacterId,
   CartoonAvatar,
+  getRegionalAvatarCharacters,
   normalizeAvatarId,
 } from "@/components/CartoonAvatars";
 import { playVoicePack, VOICE_PACKS, VoicePackId } from "@/lib/soundEffects";
-import { dbRegisterRoomPlayer } from "@/lib/db";
+import { dbFetchRoom, dbRegisterRoomPlayer } from "@/lib/db";
+import {
+  BUZZER_MODE_MARKER,
+  getRoomAdapterState,
+  getSortedBuzzQueue,
+  isBuzzAnswer,
+  isRoomInBuzzerMode,
+  RoomFrontendAdapterState,
+  useEdition,
+} from "@/lib/editionManager";
 import { DevDrawer } from "@/components/DevDrawer";
 
 export default function PlayerControllerPage() {
   const params = useParams<{ code: string }>();
   const router = useRouter();
   const roomCode = (params?.code || "K7Q2").toUpperCase().trim();
+  const { region, edition } = useEdition();
+  const regionalAvatars = getRegionalAvatarCharacters(region);
 
   const [room, setRoom] = useState<RoomState | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [adapterState, setAdapterState] = useState<RoomFrontendAdapterState>(
+    () => getRoomAdapterState(roomCode)
+  );
 
   // Onboarding state
   const [joinName, setJoinName] = useState("");
@@ -86,33 +106,65 @@ export default function PlayerControllerPage() {
 
   const lastRoundKeyRef = useRef<string>("");
 
-  // Load room & register player
+  // Load room & register player + listen to adapter updates
   useEffect(() => {
-    let existing = loadRoomFromLocal(roomCode);
-    if (!existing) {
-      existing = createInitialRoomState(roomCode);
-      saveRoomToLocalAndBroadcast(existing);
-    }
-    setRoom(existing);
+    setAdapterState(getRoomAdapterState(roomCode));
+    let mounted = true;
 
-    const savedId = loadSavedPlayerIdentity();
-    if (savedId && savedId.name) {
-      ensurePlayerInRoom(
-        existing,
-        savedId.id,
-        savedId.name,
-        normalizeAvatarId(savedId.avatar),
-        (savedId.voiceId as VoicePackId) || "hype_horn",
-        savedId.team
-      );
-    } else {
-      setNeedsOnboarding(true);
-    }
+    const initPlayerRoom = async () => {
+      // 1. Fetch authoritative room from server/DB first so player never overwrites host team names
+      let authoritativeRoom = await dbFetchRoom(roomCode);
+      if (!authoritativeRoom) {
+        authoritativeRoom = loadRoomFromLocal(roomCode);
+      }
+      if (!authoritativeRoom) {
+        authoritativeRoom = createInitialRoomState(
+          roomCode,
+          "FREE_TRIAL",
+          [],
+          {
+            team1Name: edition.defaultTeam1Name,
+            team2Name: edition.defaultTeam2Name,
+          }
+        );
+      }
+      if (!mounted) return;
+      setRoom(authoritativeRoom);
+
+      const savedId = loadSavedPlayerIdentity();
+      if (savedId && savedId.name) {
+        ensurePlayerInRoom(
+          authoritativeRoom,
+          savedId.id,
+          savedId.name,
+          normalizeAvatarId(savedId.avatar),
+          (savedId.voiceId as VoicePackId) || "hype_horn",
+          savedId.team
+        );
+      } else {
+        setNeedsOnboarding(true);
+      }
+    };
+
+    initPlayerRoom();
 
     const unsubscribe = subscribeToRoomUpdates(roomCode, (updated) => {
       setRoom(updated);
+      setAdapterState(getRoomAdapterState(roomCode));
     });
-    return () => unsubscribe();
+
+    const onAdapterEvent = () => {
+      setAdapterState(getRoomAdapterState(roomCode));
+    };
+    window.addEventListener("seen_jeem_adapter_update", onAdapterEvent);
+    window.addEventListener("storage", onAdapterEvent);
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+      window.removeEventListener("seen_jeem_adapter_update", onAdapterEvent);
+      window.removeEventListener("storage", onAdapterEvent);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomCode]);
 
@@ -129,11 +181,20 @@ export default function PlayerControllerPage() {
     }
   }, [room]);
 
-  // Sync currentPlayer object whenever room.players updates
+  // Sync currentPlayer object whenever room.players updates (including host team switch)
   useEffect(() => {
     if (!room || !currentPlayer) return;
     const updatedMe = room.players.find((p) => p.id === currentPlayer.id);
     if (updatedMe) {
+      if (updatedMe.team !== currentPlayer.team) {
+        savePlayerIdentity({
+          id: updatedMe.id,
+          name: updatedMe.name,
+          avatar: updatedMe.avatar,
+          voiceId: updatedMe.voiceId,
+          team: updatedMe.team,
+        });
+      }
       setCurrentPlayer(updatedMe);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,11 +261,13 @@ export default function PlayerControllerPage() {
 
   const submitPlayerResponse = (payload: Partial<PlayerSubmission>) => {
     if (!room || !currentPlayer) return;
+    const latestMe =
+      room.players.find((p) => p.id === currentPlayer.id) || currentPlayer;
     const elapsedMs = Math.max(100, Date.now() - room.roundStartedAt);
     const sub: PlayerSubmission = {
-      playerId: currentPlayer.id,
-      playerName: currentPlayer.name,
-      team: currentPlayer.team,
+      playerId: latestMe.id,
+      playerName: latestMe.name,
+      team: latestMe.team,
       submittedAt: Date.now(),
       elapsedMs,
       ...payload,
@@ -212,7 +275,13 @@ export default function PlayerControllerPage() {
 
     const cloned: RoomState = JSON.parse(JSON.stringify(room));
     cloned.submissions[currentPlayer.id] = sub;
+    cloned.updatedAt = Date.now();
     saveRoomToLocalAndBroadcast(cloned);
+    fetch(`/api/rooms/${roomCode}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "SUBMIT_ANSWER", submission: sub }),
+    }).catch(() => {});
     setRoom(cloned);
     setIsEditingAnswer(false);
   };
@@ -225,20 +294,29 @@ export default function PlayerControllerPage() {
     );
   }
 
+  const team1DynamicName =
+    room.teams?.team1?.name || room.teamA?.name || edition.defaultTeam1Name;
+  const team2DynamicName =
+    room.teams?.team2?.name || room.teamB?.name || edition.defaultTeam2Name;
+
   // Onboarding Screen with 8 Custom SVG Illustrated Avatars + Voice Picker
   if (needsOnboarding || !currentPlayer) {
     return (
       <div className="max-w-md mx-auto min-h-[100dvh] bg-sunny border-x-4 border-black p-4 flex flex-col justify-between">
         <div className="space-y-4">
           <div className="bg-black text-sunny rounded-2xl p-3.5 border-2 border-black flex items-center justify-between">
-            <span className="font-black text-xs">جهاز تحكم اللاعب</span>
+            <span className="font-black text-xs">
+              جهاز تحكم اللاعب ({edition.deviceTerm})
+            </span>
             <span dir="ltr" className="font-mono font-black text-base">
               {room.code}
             </span>
           </div>
 
           <div className="bg-white border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
-            <h1 className="text-xl font-black">انضم للغرفة</h1>
+            <h1 className="text-xl font-black">
+              انضم للغرفة ({edition.partyTerm})
+            </h1>
 
             <form onSubmit={handleCompleteOnboarding} className="space-y-3.5">
               <div>
@@ -249,8 +327,8 @@ export default function PlayerControllerPage() {
                   maxLength={16}
                   value={joinName}
                   onChange={(e) => setJoinName(e.target.value)}
-                  placeholder="مثال: عزوز"
-                  className="w-full px-3.5 py-2.5 rounded-xl border-3 border-black bg-cream font-black text-sm"
+                  placeholder="اكتب اسمك هنا..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border-3 border-black bg-cream font-black text-sm placeholder:text-gray-400"
                 />
               </div>
 
@@ -264,7 +342,7 @@ export default function PlayerControllerPage() {
                       : "bg-cream text-black"
                   }`}
                 >
-                  {room.teams.team1.name}
+                  {team1DynamicName}
                 </button>
                 <button
                   type="button"
@@ -275,17 +353,17 @@ export default function PlayerControllerPage() {
                       : "bg-cream text-black"
                   }`}
                 >
-                  {room.teams.team2.name}
+                  {team2DynamicName}
                 </button>
               </div>
 
-              {/* 8 Custom SVG Illustrated Avatars */}
+              {/* 8 Custom SVG Illustrated Avatars (Moroccan in MA, MENA in MENA) */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-black">
                   اختر شخصيتك الكرتونية:
                 </label>
                 <div className="grid grid-cols-4 gap-2">
-                  {AVATAR_CHARACTERS.map((char) => (
+                  {regionalAvatars.map((char) => (
                     <button
                       key={char.id}
                       type="button"
@@ -297,7 +375,7 @@ export default function PlayerControllerPage() {
                       }`}
                     >
                       <CartoonAvatar avatarId={char.id} size="sm" />
-                      <span className="text-[10px] font-black leading-none">
+                      <span className="text-[10px] font-black leading-none text-center">
                         {char.nameAr}
                       </span>
                     </button>
@@ -364,21 +442,37 @@ export default function PlayerControllerPage() {
   }
 
   const mySubmission = room.submissions[currentPlayer.id];
-  const hasSubmittedAndLocked = Boolean(mySubmission) && !isEditingAnswer;
+  const isMySubBuzz = isBuzzAnswer(mySubmission?.textAnswer);
+  const buzzQueue = getSortedBuzzQueue(room.submissions);
+  const fastestBuzz = buzzQueue[0] || null;
+  const isBuzzerMode =
+    room.majorMode === "SEEN_JEEM" && isRoomInBuzzerMode(room, adapterState);
+
+  const hasSubmittedAndLocked =
+    Boolean(mySubmission) && !isEditingAnswer && !isBuzzerMode;
+
   const { category: activeCat, question: activeSeenJeemQ } =
     getActiveSeenJeemQuestion(room);
+  const currentQuestion = activeSeenJeemQ
+    ? { ...activeSeenJeemQ, text: activeSeenJeemQ.question }
+    : null;
   const activeMiniGameMeta =
     MINI_GAMES_META.find((m) => m.id === room.activeMiniGameId) ||
     MINI_GAMES_META[0];
 
-  const headerColor =
+  const myTeamInfo =
+    currentPlayer.team === "team1" ? room.teams.team1 : room.teams.team2;
+  const myTeamDynamicName =
+    currentPlayer.team === "team1" ? team1DynamicName : team2DynamicName;
+  const myTeamDynamicScore =
     currentPlayer.team === "team1"
-      ? room.teams.team1.color
-      : room.teams.team2.color;
+      ? room.teams?.team1?.score ?? room.teamA?.score ?? 0
+      : room.teams?.team2?.score ?? room.teamB?.score ?? 0;
+  const headerColor = myTeamInfo?.color || "#3B66B4";
 
   return (
     <div className="max-w-md mx-auto min-h-[100dvh] bg-cream border-x-4 border-black flex flex-col justify-between shadow-2xl">
-      {/* Clean Mobile Controller Header */}
+      {/* Clean Mobile Controller Header (Dynamic Team Badge from Synced Room State) */}
       <header
         className="text-white border-b-4 border-black p-3.5 flex items-center justify-between"
         style={{ backgroundColor: headerColor }}
@@ -390,11 +484,11 @@ export default function PlayerControllerPage() {
               <span>{currentPlayer.name}</span>
               {currentPlayer.isCaptain && <span>👑</span>}
             </div>
-            <div className="text-[11px] font-bold text-sunny">
-              {currentPlayer.team === "team1"
-                ? room.teams.team1.name
-                : room.teams.team2.name}{" "}
-              • {currentPlayer.score} نقطة
+            <div className="text-[11px] font-bold text-sunny flex items-center gap-1.5">
+              <span className="px-2 py-0.5 rounded-full bg-black/35 border border-white/30 text-white font-black text-[10px]">
+                {myTeamDynamicName}
+              </span>
+              <span>• {myTeamDynamicScore} نقطة للفريق</span>
             </div>
           </div>
         </div>
@@ -452,15 +546,15 @@ export default function PlayerControllerPage() {
             </button>
 
             <div className="bg-white border-3 border-black rounded-2xl p-3 text-xs font-black flex items-center justify-between">
-              <span>نقاط فريقك:</span>
+              <span>فريقك: {myTeamDynamicName}</span>
               <span className="font-mono text-base text-royal">
-                {room.teams[currentPlayer.team].score}
+                {myTeamDynamicScore} نقطة
               </span>
             </div>
           </div>
         )}
 
-        {/* ANSWER RECEIVED STATE ("وصل جوابك ✔" + "تعديل") */}
+        {/* ANSWER RECEIVED STATE ("وصل جوابك ✔" + "تعديل") for non-buzzer rounds */}
         {room.phase === "PLAYING" && hasSubmittedAndLocked && mySubmission && (
           <div className="bg-mint border-4 border-black rounded-3xl p-6 shadow-brutal text-center space-y-5">
             <div className="w-16 h-16 rounded-full bg-white border-3 border-black shadow-brutal-sm flex items-center justify-center mx-auto">
@@ -475,7 +569,7 @@ export default function PlayerControllerPage() {
             </div>
 
             <div className="bg-white border-3 border-black rounded-2xl p-4 text-sm font-black">
-              {mySubmission.textAnswer && (
+              {mySubmission.textAnswer && !isMySubBuzz && (
                 <div>«{mySubmission.textAnswer}»</div>
               )}
               {typeof mySubmission.numericValue === "number" && (
@@ -502,7 +596,7 @@ export default function PlayerControllerPage() {
             <button
               type="button"
               onClick={() => {
-                if (mySubmission.textAnswer) {
+                if (mySubmission.textAnswer && !isMySubBuzz) {
                   setTextInput(mySubmission.textAnswer);
                 }
                 if (typeof mySubmission.numericValue === "number") {
@@ -521,7 +615,7 @@ export default function PlayerControllerPage() {
         {/* ACTIVE INPUT CONTROLLERS */}
         {room.phase === "PLAYING" && !hasSubmittedAndLocked && (
           <>
-            {/* MODE A: SEEN JEEM CONTROLLER */}
+            {/* MODE A: SEEN JEEM CONTROLLER (Supports Both Auto-Referee Typing & Zero-Backend Buzzer Mode) */}
             {room.majorMode === "SEEN_JEEM" && activeSeenJeemQ && (
               <div className="bg-sunny border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
                 <div className="flex items-center justify-between">
@@ -539,32 +633,85 @@ export default function PlayerControllerPage() {
                   {activeSeenJeemQ.question}
                 </h2>
 
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!textInput.trim()) return;
-                    submitPlayerResponse({ textAnswer: textInput.trim() });
-                  }}
-                  className="space-y-3"
-                >
-                  <input
-                    type="text"
-                    required
-                    autoFocus
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    placeholder="اكتب الجواب هنا..."
-                    className="w-full px-4 py-3.5 rounded-2xl border-3 border-black bg-white font-black text-base shadow-brutal-sm"
-                  />
-
-                  <button
-                    type="submit"
-                    className="w-full py-3.5 rounded-2xl bg-royal hover:bg-blue-700 text-white font-black text-base border-3 border-black shadow-brutal flex items-center justify-center gap-2"
+                {isBuzzerMode ? (
+                  <div className="space-y-3 pt-1">
+                    {/* Case 1: Current player is the fastest buzzer */}
+                    {fastestBuzz &&
+                    fastestBuzz.submission.playerId === currentPlayer.id ? (
+                      <div className="bg-mint border-4 border-black rounded-3xl p-6 text-center space-y-2 shadow-brutal">
+                        <div className="text-4xl">🔔</div>
+                        <div className="text-xl font-black text-black">
+                          أنت الأسرع على الجرس!
+                        </div>
+                        <p className="text-xs font-bold text-black/80">
+                          أجب الآن شفهياً أمام المضيف ليحتسب النقاط لفريقك (
+                          {myTeamInfo.name})!
+                        </p>
+                      </div>
+                    ) : fastestBuzz ? (
+                      /* Case 2: Another player buzzed in first -> Lock this controller */
+                      <div className="space-y-3">
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full py-10 rounded-3xl bg-neutral-800 text-neutral-400 border-4 border-neutral-700 font-black text-xl opacity-50 pointer-events-none flex flex-col items-center justify-center gap-2"
+                        >
+                          <Lock className="w-8 h-8" />
+                          <span>🔔 اضغط للإجابة!</span>
+                        </button>
+                        <div className="p-3 rounded-2xl bg-white border-2 border-black text-center text-xs font-black text-burnt">
+                          🔒 تم قفل الجرس — سبقك إلى الجرس: «
+                          {fastestBuzz.submission.playerName}»
+                        </div>
+                      </div>
+                    ) : (
+                      /* Case 3: Buzzer is open -> Giant "🔔 اضغط للإجابة!" Button */
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playVoicePack(
+                            currentPlayer.voiceId || "hype_horn",
+                            true
+                          );
+                          submitPlayerResponse({
+                            textAnswer: "__BUZZ__:" + Date.now(),
+                          });
+                        }}
+                        className="w-full py-12 rounded-3xl bg-burnt hover:bg-orange-600 active:scale-95 text-white font-black text-2xl md:text-3xl border-4 border-black shadow-brutal-lg flex flex-col items-center justify-center gap-3 transition"
+                      >
+                        <Bell className="w-12 h-12 text-sunny animate-bounce" />
+                        <span>🔔 اضغط للإجابة!</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!textInput.trim()) return;
+                      submitPlayerResponse({ textAnswer: textInput.trim() });
+                    }}
+                    className="space-y-3"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>إرسال الجواب</span>
-                  </button>
-                </form>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      value={textInput}
+                      onChange={(e) => setTextInput(e.target.value)}
+                      placeholder="اكتب الجواب هنا..."
+                      className="w-full px-4 py-3.5 rounded-2xl border-3 border-black bg-white font-black text-base shadow-brutal-sm"
+                    />
+
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 rounded-2xl bg-royal hover:bg-blue-700 text-white font-black text-base border-3 border-black shadow-brutal flex items-center justify-center gap-2"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>إرسال الجواب</span>
+                    </button>
+                  </form>
+                )}
               </div>
             )}
 
@@ -573,10 +720,16 @@ export default function PlayerControllerPage() {
               room.activeMiniGameId === "SPEED_TRIVIA" && (
                 <div className="bg-white border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
                   {(() => {
-                    const round =
-                      SPEED_TRIVIA_ROUNDS[
-                        room.miniGameRoundIndex % SPEED_TRIVIA_ROUNDS.length
+                    const speedPool = getRegionalSpeedTriviaRounds(region);
+                    const rawRound =
+                      speedPool[
+                        room.miniGameRoundIndex % speedPool.length
                       ];
+                    const round = getShuffledSpeedTriviaRound(
+                      rawRound,
+                      room.code,
+                      room.miniGameRoundIndex
+                    );
                     const btnColors = [
                       "bg-royal text-white",
                       "bg-sunny text-black",
@@ -651,18 +804,24 @@ export default function PlayerControllerPage() {
             {/* MINI-GAME #3: PRICE_GUESS */}
             {room.majorMode === "MINI_GAMES" &&
               room.activeMiniGameId === "PRICE_GUESS" && (
-                <div className="bg-sunny border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
+                <div className="bg-sunny border-4 border-black rounded-3xl p-4 shadow-brutal space-y-4">
                   {(() => {
+                    const priceRounds = getRegionalPriceGuessRounds(region);
                     const round =
-                      PRICE_GUESS_ROUNDS[
-                        room.miniGameRoundIndex % PRICE_GUESS_ROUNDS.length
+                      priceRounds[
+                        room.miniGameRoundIndex % priceRounds.length
                       ];
+                    const currencySuffix =
+                      region === "MA"
+                        ? "درهم مغربي (DH)"
+                        : edition.currencyLabel;
                     return (
                       <>
-                        <ProductArtwork type={round.illustrationType} />
-                        <h3 className="text-sm font-black bg-white border-2 border-black rounded-xl p-3">
-                          {round.productName}
-                        </h3>
+                        <EcommerceProductCard
+                          round={round}
+                          currencyLabel={currencySuffix}
+                          compact
+                        />
                         <form
                           onSubmit={(e) => {
                             e.preventDefault();
@@ -672,20 +831,25 @@ export default function PlayerControllerPage() {
                           }}
                           className="space-y-3"
                         >
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            required
-                            value={numericInput}
-                            onChange={(e) => setNumericInput(e.target.value)}
-                            placeholder="السعر بالريال السعودي"
-                            className="w-full px-4 py-3 rounded-2xl border-3 border-black bg-white font-mono font-black text-xl text-center"
-                          />
+                          <div className="relative">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              required
+                              value={numericInput}
+                              onChange={(e) => setNumericInput(e.target.value)}
+                              placeholder={`أدخل السعر بـ ${currencySuffix}`}
+                              className="w-full px-4 py-3.5 rounded-2xl border-3 border-black bg-white font-mono font-black text-xl text-center"
+                            />
+                            <span className="mt-1.5 block text-center text-xs font-black text-black">
+                              العملة: {currencySuffix}
+                            </span>
+                          </div>
                           <button
                             type="submit"
                             className="w-full py-3.5 rounded-2xl bg-black text-sunny font-black text-sm border-3 border-black shadow-brutal"
                           >
-                            اعتماد السعر
+                            اعتماد السعر ({currencySuffix})
                           </button>
                         </form>
                       </>
@@ -743,9 +907,10 @@ export default function PlayerControllerPage() {
               room.activeMiniGameId === "CLOSEST_NUMBER" && (
                 <div className="bg-sunny border-4 border-black rounded-3xl p-5 shadow-brutal space-y-4">
                   {(() => {
+                    const closestRounds = getRegionalClosestNumberRounds(region);
                     const round =
-                      CLOSEST_NUMBER_ROUNDS[
-                        room.miniGameRoundIndex % CLOSEST_NUMBER_ROUNDS.length
+                      closestRounds[
+                        room.miniGameRoundIndex % closestRounds.length
                       ];
                     return (
                       <>
@@ -917,11 +1082,23 @@ export default function PlayerControllerPage() {
               <ShieldCheck className="w-7 h-7 text-black" />
             </div>
             <h2 className="text-xl font-black">نتيجة الجولة</h2>
+
+            {room.majorMode === "SEEN_JEEM" && currentQuestion && (
+              <div className="p-3 rounded-xl bg-sunny/40 border-2 border-black text-xs font-black text-right space-y-1">
+                <div>السؤال: {currentQuestion.text}</div>
+                <div className="text-royal">
+                  الجواب الصحيح: {currentQuestion.displayAnswer}
+                </div>
+              </div>
+            )}
+
             <p className="text-xs font-bold text-gray-700 bg-cream border-2 border-black rounded-xl p-3">
-              {room.roundSummaryText}
+              {room.roundSummaryText === BUZZER_MODE_MARKER
+                ? "تم احتساب النقاط يدوياً بواسطة المضيف"
+                : room.roundSummaryText}
             </p>
 
-            {mySubmission ? (
+            {mySubmission && !isMySubBuzz ? (
               <div
                 className={`p-4 rounded-2xl border-3 border-black space-y-1 ${
                   mySubmission.isCorrect ? "bg-mint/35" : "bg-coral/30"
@@ -938,7 +1115,11 @@ export default function PlayerControllerPage() {
               </div>
             ) : (
               <div className="p-3 rounded-xl bg-gray-100 border-2 border-black text-xs font-bold">
-                لم ترسل إجابة في هذه الجولة.
+                {adapterState.manualAwardedInRound ||
+                room.roundSummaryText.includes("تم احتساب النقاط يدوياً") ||
+                isMySubBuzz
+                  ? "تم احتساب النقاط يدوياً بواسطة المضيف"
+                  : "لم ترسل إجابة في هذه الجولة."}
               </div>
             )}
           </div>
@@ -947,7 +1128,12 @@ export default function PlayerControllerPage() {
         {room.phase === "LEADERBOARD" && (
           <div className="bg-sunny border-4 border-black rounded-3xl p-6 shadow-brutal text-center space-y-4">
             <Trophy className="w-11 h-11 mx-auto text-black" />
-            <h2 className="text-2xl font-black">نقاطك: {currentPlayer.score}</h2>
+            <div className="inline-block px-4 py-1 rounded-full text-white font-black text-sm border-2 border-black" style={{ backgroundColor: myTeamInfo.color }}>
+              {myTeamInfo.name}
+            </div>
+            <h2 className="text-2xl font-black">
+              نقاط فريقك: {myTeamInfo.score}
+            </h2>
             <p className="text-xs font-bold">
               {room.teams.team1.name}: {room.teams.team1.score} •{" "}
               {room.teams.team2.name}: {room.teams.team2.score}
@@ -1077,9 +1263,11 @@ function DrawingChallengeController({
   onSubmitGuess: (txt: string) => void;
   onUpdateLiveCanvas: (dataUrl: string) => void;
 }) {
+  const { region } = useEdition();
+  const drawRounds = getRegionalDrawingChallengeRounds(region);
   const round =
-    DRAWING_CHALLENGE_ROUNDS[
-      room.miniGameRoundIndex % DRAWING_CHALLENGE_ROUNDS.length
+    drawRounds[
+      room.miniGameRoundIndex % drawRounds.length
     ];
   const isDrawer = room.drawerPlayerId === currentPlayer.id;
 
@@ -1265,7 +1453,7 @@ function DrawingChallengeController({
           onClick={() => onUpdateLiveCanvas(room.liveDrawingDataUrl || "")}
           className="px-2.5 py-1 rounded-lg bg-sunny border border-black text-[11px] font-black"
         >
-          ابدأ الرسم من جوالك
+          ابدأ الرسم من هاتفك
         </button>
       </div>
 

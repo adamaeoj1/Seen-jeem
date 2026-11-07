@@ -1,18 +1,37 @@
 import {
   CLOSEST_NUMBER_ROUNDS,
+  ClosestNumberRound,
   DRAWING_CHALLENGE_ROUNDS,
+  DrawingChallengeRound,
   MAP_PIN_ROUNDS,
   MINI_GAMES_META,
   MiniGameId,
   PRICE_GUESS_ROUNDS,
+  PriceGuessRound,
   QUICK_REFLEX_ROUNDS,
   SCENE_DESCRIPTION_ROUNDS,
   SEEN_JEEM_CATEGORIES,
   SeenJeemCategory,
   SeenJeemQuestion,
   SPEED_TRIVIA_ROUNDS,
+  SpeedTriviaRound,
   WHATS_IN_FRAME_ROUNDS,
 } from "@/data/seedQuestions";
+import {
+  MOROCCAN_PRICE_GUESS_ROUNDS,
+  MOROCCAN_SEEN_JEEM_CATEGORIES,
+} from "@/data/moroccanSeedQuestions";
+import { EditionRegion, getEditionRegion } from "@/lib/editionManager";
+import {
+  applyQuestionBankOverrides,
+  getMergedClosestNumberRounds,
+  getMergedDrawingRounds,
+  getMergedPriceGuessRounds,
+  getMergedSpeedTriviaRounds,
+  getShuffledSpeedTriviaRound,
+  markQuestionAsPlayed,
+} from "@/lib/questionRandomizer";
+import { getActiveLicense } from "@/lib/voucherEngine";
 import {
   calculateHaversineDistanceKm,
   DescriptionVerdict,
@@ -88,6 +107,7 @@ export interface PlayerSubmission {
   graded?: boolean;
   isCorrect?: boolean;
   pointsAwarded?: number;
+  manualCredited?: boolean;
   refereeVerdict?: RefereeVerdict;
   descriptionVerdict?: DescriptionVerdict;
   distanceKm?: number;
@@ -116,6 +136,11 @@ export interface RoomState {
     team1: TeamInfo;
     team2: TeamInfo;
   };
+  teamA?: { name: string; score: number };
+  teamB?: { name: string; score: number };
+  edition?: "MA" | "MENA";
+  boardSize?: 18 | 36;
+  answeringMode?: "TYPING" | "BUZZER";
   players: Player[];
 
   // Timer state
@@ -171,6 +196,54 @@ export function generateRoomCode(): string {
   return code;
 }
 
+export function getRegionalSeedCategories(
+  region: EditionRegion = getEditionRegion()
+): SeenJeemCategory[] {
+  const base =
+    region === "MA" ? MOROCCAN_SEEN_JEEM_CATEGORIES : SEEN_JEEM_CATEGORIES;
+  return applyQuestionBankOverrides(base);
+}
+
+export function getRegionalPriceGuessRounds(
+  region: EditionRegion = getEditionRegion()
+): PriceGuessRound[] {
+  const merged = getMergedPriceGuessRounds(region);
+  if (merged.length > 0) return merged;
+  return region === "MA" ? MOROCCAN_PRICE_GUESS_ROUNDS : PRICE_GUESS_ROUNDS;
+}
+
+export function getRegionalSpeedTriviaRounds(
+  region: EditionRegion = getEditionRegion()
+): SpeedTriviaRound[] {
+  const merged = getMergedSpeedTriviaRounds(region);
+  return merged.length > 0 ? merged : SPEED_TRIVIA_ROUNDS;
+}
+
+export function getRegionalClosestNumberRounds(
+  region: EditionRegion = getEditionRegion()
+): ClosestNumberRound[] {
+  const merged = getMergedClosestNumberRounds(region);
+  return merged.length > 0 ? merged : CLOSEST_NUMBER_ROUNDS;
+}
+
+export function getRegionalDrawingChallengeRounds(
+  region: EditionRegion = getEditionRegion()
+): DrawingChallengeRound[] {
+  const merged = getMergedDrawingRounds(region);
+  return merged.length > 0 ? merged : DRAWING_CHALLENGE_ROUNDS;
+}
+
+export function sanitizeRoomPlayers(players?: Player[]): Player[] {
+  if (!Array.isArray(players)) return [];
+  const legacySeedBotIds = new Set(["p-falcon-cap", "p-tiger-cap"]);
+  return players.filter(
+    (p) =>
+      p &&
+      !legacySeedBotIds.has(p.id) &&
+      !(p.isBot && (p.name === "ياسين" || p.name === "طه" || p.name === "سلطان" || p.name === "نورة" || p.name === "كنزة"))
+  );
+}
+
 export function createInitialRoomState(
   code: string,
   hostTier: SubscriptionTierId = "FREE_TRIAL",
@@ -179,16 +252,22 @@ export function createInitialRoomState(
   chosenCategories?: string[]
 ): RoomState {
   const cleanCode = code.toUpperCase().trim();
+  const activeRegion = getEditionRegion();
+  const regionalCats = getRegionalSeedCategories(activeRegion);
   const defaultCategories =
     chosenCategories && chosenCategories.length > 0
       ? chosenCategories.slice(0, 6)
-      : SEEN_JEEM_CATEGORIES.slice(0, 6).map((c) => c.id);
+      : regionalCats.slice(0, 6).map((c) => c.id);
 
   const settings: RoomSettings = {
     sessionMode: customSettings?.sessionMode || "SEEN_JEEM",
-    team1Name: customSettings?.team1Name?.trim() || "فريق الصقور",
+    team1Name:
+      customSettings?.team1Name?.trim() ||
+      (activeRegion === "MA" ? "أسود الأطلس" : "فريق الصقور"),
     team1Color: customSettings?.team1Color || "#3B66B4",
-    team2Name: customSettings?.team2Name?.trim() || "فريق النمور",
+    team2Name:
+      customSettings?.team2Name?.trim() ||
+      (activeRegion === "MA" ? "القراصنة" : "فريق النمور"),
     team2Color: customSettings?.team2Color || "#E65C2E",
     timerSec: customSettings?.timerSec || 45,
     soundEnabled: customSettings?.soundEnabled ?? true,
@@ -205,6 +284,9 @@ export function createInitialRoomState(
     hostTier,
     phase: "LOBBY",
     majorMode: initialMajorMode,
+    edition: activeRegion,
+    boardSize: 18,
+    answeringMode: "TYPING",
     settings,
     teams: {
       team1: {
@@ -222,30 +304,15 @@ export function createInitialRoomState(
         doublePointsRemaining: 1,
       },
     },
-    players: [
-      {
-        id: "p-falcon-cap",
-        name: "سلطان",
-        avatar: "abu_sultan",
-        voiceId: "hype_horn",
-        team: "team1",
-        isCaptain: true,
-        isOnline: true,
-        score: 0,
-        connectedAt: Date.now() - 30000,
-      },
-      {
-        id: "p-tiger-cap",
-        name: "نورة",
-        avatar: "nourah_pop",
-        voiceId: "royal_fanfare",
-        team: "team2",
-        isCaptain: true,
-        isOnline: true,
-        score: 0,
-        connectedAt: Date.now() - 25000,
-      },
-    ],
+    teamA: {
+      name: settings.team1Name,
+      score: 0,
+    },
+    teamB: {
+      name: settings.team2Name,
+      score: 0,
+    },
+    players: [], // Zero default bots when creating any new room
     roundStartedAt: Date.now(),
     roundDurationSec: settings.timerSec,
     selectedCategoryIds: defaultCategories,
@@ -259,15 +326,27 @@ export function createInitialRoomState(
     seenJeemBaseAwarded: { team1: 0, team2: 0 },
     activeMiniGameId: "SPEED_TRIVIA",
     miniGameRoundIndex: 0,
-    drawerPlayerId: "p-falcon-cap",
+    drawerPlayerId: null,
     liveDrawingDataUrl: null,
     submissions: {},
     roundSummaryText: "",
   };
 }
 
-export function getAllCategories(room: RoomState): SeenJeemCategory[] {
-  return [...SEEN_JEEM_CATEGORIES, ...(room.customCategories || [])];
+export function getAllCategories(
+  room: RoomState,
+  region: EditionRegion = getEditionRegion()
+): SeenJeemCategory[] {
+  const orderedSeed =
+    region === "MA"
+      ? [...MOROCCAN_SEEN_JEEM_CATEGORIES, ...SEEN_JEEM_CATEGORIES]
+      : [...SEEN_JEEM_CATEGORIES, ...MOROCCAN_SEEN_JEEM_CATEGORIES];
+  const overridden = applyQuestionBankOverrides(orderedSeed);
+  const existingIds = new Set(overridden.map((c) => c.id));
+  const extraRoomCats = (room.customCategories || []).filter(
+    (c) => !existingIds.has(c.id)
+  );
+  return [...overridden, ...extraRoomCats];
 }
 
 export function getActiveSeenJeemQuestion(room: RoomState): {
@@ -291,33 +370,61 @@ export function gradeCurrentRound(room: RoomState): RoomState {
 
   const subs = Object.values(next.submissions);
 
+  // CRITICAL BUG FIX #1: Always resolve each player's CURRENT team from room.players
+  // instead of trusting a potentially stale sub.team from the mobile controller.
+  for (const sub of subs) {
+    const currentRosterPlayer = next.players.find(
+      (pl) => pl.id === sub.playerId
+    );
+    if (currentRosterPlayer) {
+      sub.team = currentRosterPlayer.team;
+    }
+  }
+
   if (next.majorMode === "SEEN_JEEM") {
     const { question } = getActiveSeenJeemQuestion(next);
     if (!question) return next;
 
+    markQuestionAsPlayed(question.id);
+
     const multiplier = next.doublePointsActive ? 2 : 1;
     const questionPoints = question.points * multiplier;
+    const acceptedList =
+      question.acceptedSynonyms && question.acceptedSynonyms.length > 0
+        ? Array.from(
+            new Set([...question.acceptedSynonyms, ...question.acceptedAnswers])
+          )
+        : question.acceptedAnswers;
 
     let team1Correct = false;
     let team2Correct = false;
+    let trapTriggered = false;
 
     for (const sub of subs) {
+      const playerObj = next.players.find((pl) => pl.id === sub.playerId);
+      const actualTeam: TeamId = playerObj?.team || sub.team;
+      sub.team = actualTeam;
+
       const verdict = evaluateArabicAnswer(
         sub.textAnswer || "",
-        question.acceptedAnswers,
+        acceptedList,
         question.rejectedTraps || [],
-        0.82
+        0.82,
+        question.trapNote
       );
       sub.graded = true;
       sub.isCorrect = verdict.isCorrect;
       sub.refereeVerdict = verdict;
       sub.pointsAwarded = verdict.isCorrect ? questionPoints : 0;
 
+      if (verdict.isTrap) {
+        trapTriggered = true;
+      }
+
       if (verdict.isCorrect) {
-        if (sub.team === "team1") team1Correct = true;
-        if (sub.team === "team2") team2Correct = true;
-        const p = next.players.find((pl) => pl.id === sub.playerId);
-        if (p) p.score += questionPoints;
+        if (actualTeam === "team1") team1Correct = true;
+        if (actualTeam === "team2") team2Correct = true;
+        if (playerObj) playerObj.score += questionPoints;
       }
     }
 
@@ -326,6 +433,14 @@ export function gradeCurrentRound(room: RoomState): RoomState {
 
     next.teams.team1.score += t1Gain;
     next.teams.team2.score += t2Gain;
+    next.teamA = {
+      name: next.teams.team1.name,
+      score: next.teams.team1.score,
+    };
+    next.teamB = {
+      name: next.teams.team2.name,
+      score: next.teams.team2.score,
+    };
     next.seenJeemBaseAwarded = { team1: t1Gain, team2: t2Gain };
 
     if (team1Correct && team2Correct) {
@@ -342,7 +457,10 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       next.activeTeamTurn = "team2";
     } else {
       next.lastSeenJeemWinner = "none";
-      next.roundSummaryText = "لم يصل أي فريق للإجابة الصحيحة في هذه الجولة.";
+      next.roundSummaryText =
+        trapTriggered && question.trapNote
+          ? question.trapNote
+          : "لم يصل أي فريق للإجابة الصحيحة في هذه الجولة.";
       next.activeTeamTurn = next.activeTeamTurn === "team1" ? "team2" : "team1";
     }
 
@@ -356,10 +474,18 @@ export function gradeCurrentRound(room: RoomState): RoomState {
   // MODE B: THE 8 PARTY MINI-GAMES GRADING
   const gameId = next.activeMiniGameId;
   const durationMs = next.roundDurationSec * 1000;
+  const activeRegion = next.edition || getEditionRegion();
 
   if (gameId === "SPEED_TRIVIA") {
-    const round =
-      SPEED_TRIVIA_ROUNDS[next.miniGameRoundIndex % SPEED_TRIVIA_ROUNDS.length];
+    const speedRounds = getRegionalSpeedTriviaRounds(activeRegion);
+    const rawRound = speedRounds[next.miniGameRoundIndex % speedRounds.length];
+    const round = getShuffledSpeedTriviaRound(
+      rawRound,
+      next.code,
+      next.miniGameRoundIndex
+    );
+    markQuestionAsPlayed(round.id);
+
     for (const sub of subs) {
       const isRight = sub.optionIndex === round.correctIndex;
       const speedRatio = Math.max(0, Math.min(1, 1 - sub.elapsedMs / durationMs));
@@ -367,12 +493,13 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       sub.graded = true;
       sub.isCorrect = isRight;
       sub.pointsAwarded = pts;
-      awardPointsToPlayerAndTeam(next, sub.playerId, pts);
+      awardPointsToPlayerAndTeam(next, sub.playerId, pts, sub.team);
     }
     next.roundSummaryText = `الجواب الصحيح: ${round.options[round.correctIndex]} — ${round.explanation}`;
   } else if (gameId === "QUICK_REFLEX") {
     const round =
       QUICK_REFLEX_ROUNDS[next.miniGameRoundIndex % QUICK_REFLEX_ROUNDS.length];
+    markQuestionAsPlayed(round.id);
     for (const sub of subs) {
       const isRight = sub.reflexCellId === round.targetCellId;
       const speedRatio = Math.max(0, Math.min(1, 1 - sub.elapsedMs / durationMs));
@@ -380,16 +507,24 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       sub.graded = true;
       sub.isCorrect = isRight;
       sub.pointsAwarded = pts;
-      awardPointsToPlayerAndTeam(next, sub.playerId, pts);
+      awardPointsToPlayerAndTeam(next, sub.playerId, pts, sub.team);
     }
     const targetCell = round.grid.find((c) => c.id === round.targetCellId);
     next.roundSummaryText = `الشكل المطلوب كان: ${targetCell?.labelAr || ""}`;
   } else if (gameId === "PRICE_GUESS") {
-    const round =
-      PRICE_GUESS_ROUNDS[next.miniGameRoundIndex % PRICE_GUESS_ROUNDS.length];
+    const priceRounds = getRegionalPriceGuessRounds(activeRegion);
+    const round = priceRounds[next.miniGameRoundIndex % priceRounds.length];
+    markQuestionAsPlayed(round.id);
+    const targetPrice =
+      activeRegion === "MA"
+        ? round.actualPriceDh ?? round.actualPriceSar
+        : round.actualPriceSar;
+    const currencySuffix =
+      activeRegion === "MA" ? "درهم مغربي (DH)" : round.currencyLabel;
+
     const validSubs = subs.filter((s) => typeof s.numericValue === "number");
     validSubs.forEach((s) => {
-      s.numericDiff = Math.abs((s.numericValue ?? 0) - round.actualPriceSar);
+      s.numericDiff = Math.abs((s.numericValue ?? 0) - targetPrice);
     });
     validSubs.sort((a, b) => (a.numericDiff ?? 999999) - (b.numericDiff ?? 999999));
 
@@ -401,20 +536,22 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       else if (idx === 1) pts = 350;
       else if (idx === 2) pts = 220;
       if (sub.numericDiff === 0) pts = 600;
-      sub.isCorrect = idx === 0 || (sub.numericDiff ?? 99999) <= round.actualPriceSar * 0.15;
+      sub.isCorrect = idx === 0 || (sub.numericDiff ?? 99999) <= targetPrice * 0.15;
       sub.pointsAwarded = pts;
-      awardPointsToPlayerAndTeam(next, sub.playerId, pts);
+      awardPointsToPlayerAndTeam(next, sub.playerId, pts, sub.team);
     });
-    next.roundSummaryText = `السعر الحقيقي: ${round.actualPriceSar.toLocaleString("en-US")} ${round.currencyLabel}`;
+    next.roundSummaryText = `السعر الحقيقي: ${targetPrice.toLocaleString("en-US")} ${currencySuffix}`;
   } else if (gameId === "WHATS_IN_FRAME") {
     const round =
       WHATS_IN_FRAME_ROUNDS[next.miniGameRoundIndex % WHATS_IN_FRAME_ROUNDS.length];
+    markQuestionAsPlayed(round.id);
     for (const sub of subs) {
       const verdict = evaluateArabicAnswer(
         sub.textAnswer || "",
         round.acceptedAnswers,
         round.rejectedTraps,
-        0.82
+        0.82,
+        round.trapNote
       );
       const speedRatio = Math.max(0, Math.min(1, 1 - sub.elapsedMs / durationMs));
       const pts = verdict.isCorrect ? Math.round(300 + speedRatio * 200) : 0;
@@ -422,12 +559,14 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       sub.isCorrect = verdict.isCorrect;
       sub.refereeVerdict = verdict;
       sub.pointsAwarded = pts;
-      awardPointsToPlayerAndTeam(next, sub.playerId, pts);
+      awardPointsToPlayerAndTeam(next, sub.playerId, pts, sub.team);
     }
     next.roundSummaryText = `في اللقطة: ${round.displayAnswer} — ${round.funFact}`;
   } else if (gameId === "CLOSEST_NUMBER") {
+    const closestRounds = getRegionalClosestNumberRounds(activeRegion);
     const round =
-      CLOSEST_NUMBER_ROUNDS[next.miniGameRoundIndex % CLOSEST_NUMBER_ROUNDS.length];
+      closestRounds[next.miniGameRoundIndex % closestRounds.length];
+    markQuestionAsPlayed(round.id);
     const validSubs = subs.filter((s) => typeof s.numericValue === "number");
     validSubs.forEach((s) => {
       s.numericDiff = Math.abs((s.numericValue ?? 0) - round.correctNumber);
@@ -444,14 +583,13 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       if (sub.numericDiff === 0) pts = 600;
       sub.isCorrect = idx === 0;
       sub.pointsAwarded = pts;
-      awardPointsToPlayerAndTeam(next, sub.playerId, pts);
+      awardPointsToPlayerAndTeam(next, sub.playerId, pts, sub.team);
     });
     next.roundSummaryText = `الرقم الصحيح: ${round.correctNumber} ${round.unitLabel} — ${round.funFact}`;
   } else if (gameId === "DRAWING_CHALLENGE") {
-    const round =
-      DRAWING_CHALLENGE_ROUNDS[
-        next.miniGameRoundIndex % DRAWING_CHALLENGE_ROUNDS.length
-      ];
+    const drawRounds = getRegionalDrawingChallengeRounds(activeRegion);
+    const round = drawRounds[next.miniGameRoundIndex % drawRounds.length];
+    markQuestionAsPlayed(round.id);
     let someoneGuessedRight = false;
     for (const sub of subs) {
       if (sub.playerId === next.drawerPlayerId) continue;
@@ -468,7 +606,7 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       sub.pointsAwarded = pts;
       if (verdict.isCorrect) {
         someoneGuessedRight = true;
-        awardPointsToPlayerAndTeam(next, sub.playerId, pts);
+        awardPointsToPlayerAndTeam(next, sub.playerId, pts, sub.team);
       }
     }
     if (someoneGuessedRight && next.drawerPlayerId) {
@@ -477,6 +615,7 @@ export function gradeCurrentRound(room: RoomState): RoomState {
     next.roundSummaryText = `الرسمة السرية كانت: «${round.secretWord}»`;
   } else if (gameId === "MAP_PIN") {
     const round = MAP_PIN_ROUNDS[next.miniGameRoundIndex % MAP_PIN_ROUNDS.length];
+    markQuestionAsPlayed(round.id);
     const validSubs = subs.filter(
       (s) => typeof s.pinLat === "number" && typeof s.pinLng === "number"
     );
@@ -497,7 +636,7 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       const totalPts = basePts + closestBonus;
       sub.isCorrect = (sub.distanceKm ?? 9999) <= 1200 || idx === 0;
       sub.pointsAwarded = totalPts;
-      awardPointsToPlayerAndTeam(next, sub.playerId, totalPts);
+      awardPointsToPlayerAndTeam(next, sub.playerId, totalPts, sub.team);
     });
     next.roundSummaryText = `الموقع الصحيح: ${round.placeName} — ${round.funFact}`;
   } else if (gameId === "SCENE_DESCRIPTION") {
@@ -505,6 +644,7 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       SCENE_DESCRIPTION_ROUNDS[
         next.miniGameRoundIndex % SCENE_DESCRIPTION_ROUNDS.length
       ];
+    markQuestionAsPlayed(round.id);
     for (const sub of subs) {
       const descVerdict = evaluateDescriptionTags(
         sub.textAnswer || "",
@@ -514,10 +654,19 @@ export function gradeCurrentRound(room: RoomState): RoomState {
       sub.descriptionVerdict = descVerdict;
       sub.isCorrect = descVerdict.matchedTags.length >= 2;
       sub.pointsAwarded = descVerdict.totalPoints;
-      awardPointsToPlayerAndTeam(next, sub.playerId, descVerdict.totalPoints);
+      awardPointsToPlayerAndTeam(next, sub.playerId, descVerdict.totalPoints, sub.team);
     }
     next.roundSummaryText = `الوصف النموذجي: ${round.modelDescription}`;
   }
+
+  next.teamA = {
+    name: next.teams.team1.name,
+    score: next.teams.team1.score,
+  };
+  next.teamB = {
+    name: next.teams.team2.name,
+    score: next.teams.team2.score,
+  };
 
   return next;
 }
@@ -525,14 +674,24 @@ export function gradeCurrentRound(room: RoomState): RoomState {
 function awardPointsToPlayerAndTeam(
   room: RoomState,
   playerId: string,
-  points: number
+  points: number,
+  fallbackTeam?: TeamId
 ) {
   if (points <= 0) return;
   const player = room.players.find((p) => p.id === playerId);
+  const actualTeam: TeamId = player?.team || fallbackTeam || "team1";
   if (player) {
     player.score += points;
-    room.teams[player.team].score += points;
   }
+  room.teams[actualTeam].score += points;
+  room.teamA = {
+    name: room.teams.team1.name,
+    score: room.teams.team1.score,
+  };
+  room.teamB = {
+    name: room.teams.team2.name,
+    score: room.teams.team2.score,
+  };
 }
 
 export function applyHostSeenJeemOverride(
@@ -569,6 +728,14 @@ export function applyHostSeenJeemOverride(
 
   next.teams.team1.score += t1;
   next.teams.team2.score += t2;
+  next.teamA = {
+    name: next.teams.team1.name,
+    score: next.teams.team1.score,
+  };
+  next.teamB = {
+    name: next.teams.team2.name,
+    score: next.teams.team2.score,
+  };
   next.seenJeemBaseAwarded = { team1: t1, team2: t2 };
   next.lastSeenJeemWinner = winner;
   next.updatedAt = Date.now();
@@ -609,6 +776,23 @@ export function profileToSubscriptionState(
   profile: UserProfileRecord
 ): UserSubscriptionState {
   const customCategories = loadLocalCustomPacks();
+  const activeVoucher = getActiveLicense();
+
+  if (activeVoucher) {
+    const isPro =
+      activeVoucher.prefix === "PROMOROCCO" ||
+      activeVoucher.prefix === "CAFEMODE";
+    return {
+      tier: isPro ? "PRO_HOST" : "PARTY_PASS",
+      freeSessionsRemaining: profile.free_sessions_remaining,
+      partyPassExpiresAt: activeVoucher.expiresAt,
+      proSubscriptionActive: isPro,
+      customCategories,
+      profileName: profile.name,
+      profileEmail: profile.email,
+    };
+  }
+
   const tierMap: Record<UserProfileRecord["tier"], SubscriptionTierId> = {
     free: "FREE_TRIAL",
     party_pass: "PARTY_PASS",
@@ -656,6 +840,10 @@ export function canHostCreateSession(sub: UserSubscriptionState): {
   allowed: boolean;
   reasonAr: string;
 } {
+  const activeVoucher = getActiveLicense();
+  if (activeVoucher) {
+    return { allowed: true, reasonAr: activeVoucher.labelAr };
+  }
   if (sub.proSubscriptionActive || sub.tier === "PRO_HOST") {
     return { allowed: true, reasonAr: "باقة المضيف المحترف نشطة" };
   }
